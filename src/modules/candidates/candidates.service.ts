@@ -1,0 +1,246 @@
+import { prisma } from '../../lib/prisma';
+import {
+  CreateCandidateInput,
+  UpdateCandidateInput,
+  UpdateStatusInput,
+  ListCandidatesQuery,
+} from './candidates.types';
+import { CandidateStatus, Prisma } from '@prisma/client';
+
+// Candidate select shape used consistently across queries
+const candidateSelect = {
+  id: true,
+  fullName: true,
+  phoneNumber: true,
+  whatsappNumber: true,
+  email: true,
+  city: true,
+  qualification: true,
+  skills: true,
+  experience: true,
+  preferredRole: true,
+  status: true,
+  source: true,
+  createdAt: true,
+  updatedAt: true,
+  assignments: {
+    select: {
+      user: { select: { id: true, name: true, email: true } },
+      assignedAt: true,
+    },
+    orderBy: { assignedAt: 'desc' as const },
+    take: 1,
+  },
+};
+
+export async function listCandidates(query: ListCandidatesQuery, userId: string, userRole: string) {
+  const { page, limit, search, status, assignedToMe } = query;
+  const skip = (page - 1) * limit;
+
+  const where: Prisma.CandidateWhereInput = {};
+
+  if (search) {
+    where.OR = [
+      { fullName: { contains: search, mode: 'insensitive' } },
+      { phoneNumber: { contains: search } },
+      { whatsappNumber: { contains: search } },
+      { email: { contains: search, mode: 'insensitive' } },
+    ];
+  }
+
+  if (status) {
+    where.status = status;
+  }
+
+  // Agents only see assigned candidates unless filtering explicitly
+  if (userRole === 'AGENT' || assignedToMe) {
+    where.assignments = { some: { userId } };
+  }
+
+  const [candidates, total] = await prisma.$transaction([
+    prisma.candidate.findMany({
+      where,
+      select: candidateSelect,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    }),
+    prisma.candidate.count({ where }),
+  ]);
+
+  return {
+    candidates,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+}
+
+export async function getCandidateById(id: string) {
+  const candidate = await prisma.candidate.findUnique({
+    where: { id },
+    select: {
+      ...candidateSelect,
+      notes: {
+        select: {
+          id: true,
+          content: true,
+          createdAt: true,
+          user: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      },
+      followUps: {
+        select: {
+          id: true,
+          dueAt: true,
+          status: true,
+          remarks: true,
+          completedAt: true,
+          createdAt: true,
+          user: { select: { id: true, name: true } },
+        },
+        orderBy: { dueAt: 'asc' },
+      },
+      statusHistory: {
+        select: {
+          id: true,
+          oldStatus: true,
+          newStatus: true,
+          changedAt: true,
+          changedBy: { select: { id: true, name: true } },
+        },
+        orderBy: { changedAt: 'desc' },
+      },
+    },
+  });
+  return candidate;
+}
+
+export async function createCandidate(input: CreateCandidateInput, createdByUserId: string) {
+  const candidate = await prisma.candidate.create({
+    data: {
+      fullName: input.fullName,
+      phoneNumber: input.phoneNumber,
+      whatsappNumber: input.whatsappNumber,
+      email: input.email || null,
+      city: input.city,
+      qualification: input.qualification,
+      skills: input.skills,
+      experience: input.experience,
+      preferredRole: input.preferredRole,
+      source: input.source,
+      status: CandidateStatus.NEW,
+      // Auto-assign to creator if they are an agent
+      assignments: {
+        create: {
+          userId: createdByUserId,
+          assignedById: createdByUserId,
+        },
+      },
+    },
+    select: candidateSelect,
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: createdByUserId,
+      action: 'CREATE',
+      entityType: 'Candidate',
+      entityId: candidate.id,
+    },
+  });
+
+  return candidate;
+}
+
+export async function updateCandidate(id: string, input: UpdateCandidateInput, userId: string) {
+  const existing = await prisma.candidate.findUnique({ where: { id }, select: { id: true } });
+  if (!existing) return null;
+
+  const candidate = await prisma.candidate.update({
+    where: { id },
+    data: {
+      ...input,
+      email: input.email || null,
+    },
+    select: candidateSelect,
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: 'UPDATE',
+      entityType: 'Candidate',
+      entityId: id,
+    },
+  });
+
+  return candidate;
+}
+
+export async function updateCandidateStatus(
+  id: string,
+  input: UpdateStatusInput,
+  userId: string
+) {
+  const existing = await prisma.candidate.findUnique({
+    where: { id },
+    select: { id: true, status: true },
+  });
+  if (!existing) return null;
+
+  const [candidate] = await prisma.$transaction([
+    prisma.candidate.update({
+      where: { id },
+      data: { status: input.status },
+      select: candidateSelect,
+    }),
+    prisma.statusHistory.create({
+      data: {
+        candidateId: id,
+        oldStatus: existing.status,
+        newStatus: input.status,
+        changedById: userId,
+      },
+    }),
+    prisma.auditLog.create({
+      data: {
+        userId,
+        action: 'STATUS_CHANGE',
+        entityType: 'Candidate',
+        entityId: id,
+        metadata: { from: existing.status, to: input.status },
+      },
+    }),
+  ]);
+
+  return candidate;
+}
+
+export async function assignCandidate(candidateId: string, assignToUserId: string, assignedById: string) {
+  const existing = await prisma.candidate.findUnique({ where: { id: candidateId }, select: { id: true } });
+  if (!existing) return null;
+
+  // Remove existing assignments and create new one
+  await prisma.$transaction([
+    prisma.candidateAssignment.deleteMany({ where: { candidateId } }),
+    prisma.candidateAssignment.create({
+      data: { candidateId, userId: assignToUserId, assignedById },
+    }),
+    prisma.auditLog.create({
+      data: {
+        userId: assignedById,
+        action: 'ASSIGN',
+        entityType: 'Candidate',
+        entityId: candidateId,
+        metadata: { assignedTo: assignToUserId },
+      },
+    }),
+  ]);
+
+  return prisma.candidate.findUnique({ where: { id: candidateId }, select: candidateSelect });
+}

@@ -1,0 +1,232 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  AGENT
+  MANAGER
+}
+
+enum CandidateStatus {
+  NEW
+  CONTACTED
+  INTERESTED
+  DOCUMENTS_PENDING
+  INTERVIEW_SCHEDULED
+  FOLLOW_UP_REQUIRED
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageChannel {
+  WHATSAPP
+}
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum CallStatus {
+  COMPLETED
+  MISSED
+  FAILED
+  IN_PROGRESS
+}
+
+enum FollowUpStatus {
+  PENDING
+  COMPLETED
+  OVERDUE
+  RESCHEDULED
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(AGENT)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  notes              Note[]
+  followUps          FollowUp[]
+  assignedCandidates CandidateAssignment[] @relation("AssignedToUser")
+  assignedBy         CandidateAssignment[] @relation("AssignedByUser")
+  sentMessages       Message[]
+  statusChanges      StatusHistory[]
+  auditLogs          AuditLog[]
+  uploadedFiles      CandidateFile[]
+  loggedCalls        Call[]
+
+  @@map("users")
+}
+
+model Candidate {
+  id              String          @id @default(cuid())
+  fullName        String
+  phoneNumber     String
+  whatsappNumber  String?
+  email           String?
+  city            String?
+  qualification   String?
+  skills          String?
+  experience      String?
+  preferredRole   String?
+  status          CandidateStatus @default(NEW)
+  source          String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  assignments   CandidateAssignment[]
+  messages      Message[]
+  calls         Call[]
+  notes         Note[]
+  followUps     FollowUp[]
+  statusHistory StatusHistory[]
+  files         CandidateFile[]
+
+  @@map("candidates")
+}
+
+model CandidateAssignment {
+  id          String   @id @default(cuid())
+  candidateId String
+  userId      String
+  assignedById String
+  assignedAt  DateTime @default(now())
+
+  candidate  Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  user       User      @relation("AssignedToUser", fields: [userId], references: [id])
+  assignedBy User      @relation("AssignedByUser", fields: [assignedById], references: [id])
+
+  @@map("candidate_assignments")
+}
+
+model Message {
+  id                String           @id @default(cuid())
+  candidateId       String
+  direction         MessageDirection
+  channel           MessageChannel   @default(WHATSAPP)
+  messageText       String
+  externalMessageId String?          @unique
+  sentByUserId      String?
+  createdAt         DateTime         @default(now())
+
+  candidate  Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  sentBy     User?     @relation(fields: [sentByUserId], references: [id])
+
+  @@map("messages")
+}
+
+model Call {
+  id             String        @id @default(cuid())
+  candidateId    String
+  loggedById     String
+  direction      CallDirection
+  phoneNumber    String
+  duration       Int?          // seconds
+  status         CallStatus
+  providerCallId String?       @unique
+  notes          String?
+  createdAt      DateTime      @default(now())
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  loggedBy  User      @relation(fields: [loggedById], references: [id])
+
+  @@map("calls")
+}
+
+model Note {
+  id          String   @id @default(cuid())
+  candidateId String
+  userId      String
+  content     String
+  createdAt   DateTime @default(now())
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@map("notes")
+}
+
+model FollowUp {
+  id          String         @id @default(cuid())
+  candidateId String
+  userId      String
+  dueAt       DateTime
+  status      FollowUpStatus @default(PENDING)
+  remarks     String?
+  completedAt DateTime?
+  createdAt   DateTime       @default(now())
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@map("follow_ups")
+}
+
+model StatusHistory {
+  id          String          @id @default(cuid())
+  candidateId String
+  oldStatus   CandidateStatus
+  newStatus   CandidateStatus
+  changedById String
+  changedAt   DateTime        @default(now())
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  changedBy User      @relation(fields: [changedById], references: [id])
+
+  @@map("status_history")
+}
+
+model CandidateFile {
+  id           String   @id @default(cuid())
+  candidateId  String
+  uploadedById String
+  originalName String
+  mimeType     String
+  size         Int
+  url          String
+  publicId     String
+  createdAt    DateTime @default(now())
+
+  candidate  Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  uploadedBy User      @relation(fields: [uploadedById], references: [id])
+
+  @@map("candidate_files")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
