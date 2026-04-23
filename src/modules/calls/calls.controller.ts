@@ -132,9 +132,11 @@ export async function handleVoiceInboundWebhook(req: Request, res: Response, nex
 
     // Respond with TwiML — ring the agent's browser (Twilio Voice Client).
     // Falls back to a polite greeting if browser-calling isn't configured yet.
+    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+    const statusCallbackUrl = `${proto}://${req.get('host')}/api/calls/voice/status`;
     res.set('Content-Type', 'text/xml');
     if (env.TWILIO_API_KEY && env.TWILIO_TWIML_APP_SID) {
-      res.send(dialClientTwiml(env.TWILIO_AGENT_IDENTITY || 'agent'));
+      res.send(dialClientTwiml(env.TWILIO_AGENT_IDENTITY || 'agent', statusCallbackUrl));
     } else {
       res.send(inboundCallTwiml());
     }

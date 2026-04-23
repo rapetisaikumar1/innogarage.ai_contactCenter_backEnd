@@ -49,12 +49,13 @@ export function inboundCallTwiml(companyName = 'Contact Center'): string {
 
 // Ring the agent's browser (Twilio Client). Used for inbound calls so that
 // whoever is logged in to the contact center app receives the call in-browser.
-export function dialClientTwiml(identity: string, companyName = 'Contact Center'): string {
+// action= fires the status webhook when the Dial leg ends (call completes/times out).
+export function dialClientTwiml(identity: string, statusCallbackUrl: string, companyName = 'Contact Center'): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">Thank you for calling ${companyName}. Connecting you to an agent now.</Say>
-  <Dial timeout="30" answerOnBridge="true">
-    <Client>${identity}</Client>
+  <Dial timeout="30" answerOnBridge="true" action="${statusCallbackUrl}" method="POST">
+    <Client statusCallbackEvent="initiated ringing answered completed" statusCallback="${statusCallbackUrl}" statusCallbackMethod="POST">${identity}</Client>
   </Dial>
 </Response>`;
 }
