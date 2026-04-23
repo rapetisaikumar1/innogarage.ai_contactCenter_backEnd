@@ -17,6 +17,11 @@ const envSchema = z.object({
   TWILIO_AUTH_TOKEN: z.string().min(1, 'TWILIO_AUTH_TOKEN is required'),
   TWILIO_WHATSAPP_NUMBER: z.string().min(1, 'TWILIO_WHATSAPP_NUMBER is required'),
   TWILIO_VOICE_NUMBER: z.string().default(''),  // Twilio Voice phone number (e.g. +1XXXXXXXXXX)
+  // Browser-calling (Twilio Voice JS SDK)
+  TWILIO_API_KEY: z.string().default(''),         // SK… created in Twilio console > API keys
+  TWILIO_API_SECRET: z.string().default(''),      // secret shown once when API key created
+  TWILIO_TWIML_APP_SID: z.string().default(''),   // AP… TwiML App SID
+  TWILIO_AGENT_IDENTITY: z.string().default('agent'), // shared identity all agents register as
 });
 
 const parsed = envSchema.safeParse(process.env);

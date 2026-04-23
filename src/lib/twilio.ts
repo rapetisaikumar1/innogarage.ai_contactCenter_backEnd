@@ -46,3 +46,53 @@ export function inboundCallTwiml(companyName = 'Contact Center'): string {
   <Say voice="alice">Goodbye.</Say>
 </Response>`;
 }
+
+// Ring the agent's browser (Twilio Client). Used for inbound calls so that
+// whoever is logged in to the contact center app receives the call in-browser.
+export function dialClientTwiml(identity: string, companyName = 'Contact Center'): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Thank you for calling ${companyName}. Connecting you to an agent now.</Say>
+  <Dial timeout="30" answerOnBridge="true">
+    <Client>${identity}</Client>
+  </Dial>
+</Response>`;
+}
+
+// Bridge an outbound browser call to a real phone number.
+// Used when the agent's browser dials a candidate via Twilio Device.
+export function dialNumberTwiml(to: string, callerId: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial callerId="${callerId}" answerOnBridge="true">
+    <Number>${to}</Number>
+  </Dial>
+</Response>`;
+}
+
+// Generate a short-lived JWT access token that the browser uses to register
+// with Twilio as a Voice Client. Identity should uniquely identify the agent
+// (or use a shared identity like "agent" for single-agent setups).
+export function generateVoiceAccessToken(identity: string): string {
+  if (!env.TWILIO_API_KEY || !env.TWILIO_API_SECRET || !env.TWILIO_TWIML_APP_SID) {
+    throw new Error('Twilio Voice SDK not configured (missing TWILIO_API_KEY/SECRET/TWIML_APP_SID)');
+  }
+
+  const AccessToken = twilio.jwt.AccessToken;
+  const VoiceGrant = AccessToken.VoiceGrant;
+
+  const token = new AccessToken(
+    env.TWILIO_ACCOUNT_SID,
+    env.TWILIO_API_KEY,
+    env.TWILIO_API_SECRET,
+    { identity, ttl: 3600 } // 1-hour token
+  );
+
+  const grant = new VoiceGrant({
+    outgoingApplicationSid: env.TWILIO_TWIML_APP_SID,
+    incomingAllow: true,
+  });
+  token.addGrant(grant);
+
+  return token.toJwt();
+}

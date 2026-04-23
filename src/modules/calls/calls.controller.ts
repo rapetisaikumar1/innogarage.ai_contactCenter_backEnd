@@ -11,7 +11,7 @@ import {
   initiateOutboundCall,
 } from './calls.service';
 import { logCallSchema, updateCallSchema, listCallsSchema } from './calls.types';
-import { validateTwilioSignature, inboundCallTwiml } from '../../lib/twilio';
+import { validateTwilioSignature, inboundCallTwiml, dialClientTwiml } from '../../lib/twilio';
 import { env } from '../../config/env';
 
 // POST /api/calls  — log a new call
@@ -130,9 +130,14 @@ export async function handleVoiceInboundWebhook(req: Request, res: Response, nex
       await handleVoiceInbound({ callSid: CallSid, from: From, to: To });
     }
 
-    // Respond with TwiML — greet the caller
+    // Respond with TwiML — ring the agent's browser (Twilio Voice Client).
+    // Falls back to a polite greeting if browser-calling isn't configured yet.
     res.set('Content-Type', 'text/xml');
-    res.send(inboundCallTwiml());
+    if (env.TWILIO_API_KEY && env.TWILIO_TWIML_APP_SID) {
+      res.send(dialClientTwiml(env.TWILIO_AGENT_IDENTITY || 'agent'));
+    } else {
+      res.send(inboundCallTwiml());
+    }
   } catch (err) {
     next(err);
   }
