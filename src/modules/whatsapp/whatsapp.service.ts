@@ -23,9 +23,19 @@ export async function handleInboundMessage(params: {
     },
   });
 
-  if (!candidate) {
-    logger.warn({ phoneNumber }, 'Inbound WhatsApp from unknown number — message stored without candidate link');
-    return;
+  let resolvedCandidate = candidate;
+
+  // Auto-create candidate if number is unknown
+  if (!resolvedCandidate) {
+    resolvedCandidate = await prisma.candidate.create({
+      data: {
+        fullName: `Unknown (${phoneNumber})`,
+        phoneNumber,
+        whatsappNumber: phoneNumber,
+        status: 'NEW',
+      },
+    });
+    logger.info({ phoneNumber, candidateId: resolvedCandidate.id }, 'Auto-created candidate from unknown WhatsApp number');
   }
 
   // Avoid duplicate webhook deliveries
@@ -36,7 +46,7 @@ export async function handleInboundMessage(params: {
 
   await prisma.message.create({
     data: {
-      candidateId: candidate.id,
+      candidateId: resolvedCandidate.id,
       direction: 'INBOUND',
       channel: 'WHATSAPP',
       messageText: params.body,
@@ -44,7 +54,7 @@ export async function handleInboundMessage(params: {
     },
   });
 
-  logger.info({ candidateId: candidate.id, messageSid: params.messageSid }, 'Inbound WhatsApp stored');
+  logger.info({ candidateId: resolvedCandidate.id, messageSid: params.messageSid }, 'Inbound WhatsApp stored');
 }
 
 // ─── Outbound: agent sends a message ─────────────────────────────────────────
