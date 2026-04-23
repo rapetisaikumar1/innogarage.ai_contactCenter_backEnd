@@ -61,11 +61,13 @@ export function dialClientTwiml(identity: string, companyName = 'Contact Center'
 
 // Bridge an outbound browser call to a real phone number.
 // Used when the agent's browser dials a candidate via Twilio Device.
-export function dialNumberTwiml(to: string, callerId: string): string {
+// action= fires a POST to the status webhook when the Dial leg ends,
+// which lets us update the call record to COMPLETED/MISSED/FAILED.
+export function dialNumberTwiml(to: string, callerId: string, statusCallbackUrl: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial callerId="${callerId}" answerOnBridge="true">
-    <Number>${to}</Number>
+  <Dial callerId="${callerId}" answerOnBridge="true" action="${statusCallbackUrl}" method="POST">
+    <Number statusCallbackEvent="initiated ringing answered completed" statusCallback="${statusCallbackUrl}" statusCallbackMethod="POST">${to}</Number>
   </Dial>
 </Response>`;
 }

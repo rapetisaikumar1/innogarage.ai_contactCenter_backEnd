@@ -73,7 +73,9 @@ export async function handleOutboundTwiml(req: Request, res: Response, next: Nex
     }
 
     res.set('Content-Type', 'text/xml');
-    res.send(dialNumberTwiml(To, env.TWILIO_VOICE_NUMBER));
+    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+    const statusCallbackUrl = `${proto}://${req.get('host')}/api/calls/voice/status`;
+    res.send(dialNumberTwiml(To, env.TWILIO_VOICE_NUMBER, statusCallbackUrl));
   } catch (err) {
     next(err);
   }
