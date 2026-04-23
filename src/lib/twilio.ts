@@ -26,14 +26,25 @@ export async function makeOutboundCall(
   statusCallbackUrl: string
 ): Promise<string> {
   if (!env.TWILIO_VOICE_NUMBER) throw new Error('TWILIO_VOICE_NUMBER is not configured');
-  const call = await client.calls.create({
+  let call;
+  try {
+    call = await client.calls.create({
     to,
     from: env.TWILIO_VOICE_NUMBER,
     twiml: '<Response><Say>Connecting you now. Please hold.</Say><Pause length="30"/></Response>',
     statusCallback: statusCallbackUrl,
     statusCallbackMethod: 'POST',
     statusCallbackEvent: ['completed', 'busy', 'no-answer', 'failed'],
-  });
+    });
+  } catch (err: unknown) {
+    const raw = err instanceof Error ? err.message : String(err);
+    // Twilio error objects have a `code` property
+    const code = (err as Record<string, unknown>).code;
+    if (code === 21215 || code === 21219) {
+      throw new Error(`Twilio cannot call ${to}: Geographic permissions not enabled. Enable India in Twilio Console → Voice → Geo Permissions. (Twilio error ${code})`);
+    }
+    throw new Error(`Twilio call failed: ${raw}`);
+  }
   return call.sid;
 }
 

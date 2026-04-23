@@ -225,7 +225,16 @@ export async function initiateOutboundCall(params: {
   const toNumber = candidate.phoneNumber ?? candidate.whatsappNumber;
   if (!toNumber) throw new Error('Candidate has no phone number');
 
-  const callSid = await makeOutboundCall(toNumber, params.statusCallbackUrl);
+  let callSid: string;
+  try {
+    callSid = await makeOutboundCall(toNumber, params.statusCallbackUrl);
+  } catch (err: unknown) {
+    // Surface Twilio error codes (e.g. 21215 = geo permissions, 21219 = trial restriction)
+    const msg = err instanceof Error ? err.message : 'Twilio call failed';
+    const twilioErr = new Error(msg) as Error & { statusCode: number };
+    twilioErr.statusCode = 422;
+    throw twilioErr;
+  }
 
   await prisma.call.create({
     data: {
