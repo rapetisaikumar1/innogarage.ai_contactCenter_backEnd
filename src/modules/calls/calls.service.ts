@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
+import { makeOutboundCall } from '../../lib/twilio';
 import { CallDTO, ListCallsInput, LogCallInput, UpdateCallInput } from './calls.types';
 
 const CALL_INCLUDE = {
@@ -124,4 +125,119 @@ export async function listCalls(input: ListCallsInput): Promise<{ calls: CallDTO
     prisma.call.count({ where }),
   ]);
   return { calls: calls as unknown as CallDTO[], total };
+}
+
+// ─── Voice: handle inbound call from Twilio ───────────────────────────────────
+// Called when someone dials our Twilio Voice number.
+// Creates a call record as IN_PROGRESS, linked to candidate if number matches.
+export async function handleVoiceInbound(params: {
+  callSid: string;
+  from: string;   // caller's number e.g. +919876543210
+  to: string;     // our Twilio number
+}): Promise<void> {
+  const phoneNumber = params.from.replace(/^\+/, '+'); // normalize
+
+  const candidate = await prisma.candidate.findFirst({
+    where: {
+      OR: [{ phoneNumber }, { whatsappNumber: phoneNumber }],
+    },
+  });
+
+  let candidateId: string;
+
+  if (candidate) {
+    candidateId = candidate.id;
+  } else {
+    // Auto-create candidate from unknown caller
+    const created = await prisma.candidate.create({
+      data: {
+        fullName: `Unknown Caller (${phoneNumber})`,
+        phoneNumber,
+        status: 'NEW',
+      },
+    });
+    candidateId = created.id;
+    logger.info({ phoneNumber, candidateId }, 'Auto-created candidate from inbound voice call');
+  }
+
+  // Avoid duplicate SIDs
+  const existing = await prisma.call.findFirst({ where: { providerCallId: params.callSid } });
+  if (existing) return;
+
+  await prisma.call.create({
+    data: {
+      candidateId,
+      loggedById: null as unknown as string, // system-generated — no user
+      direction: 'INBOUND',
+      phoneNumber,
+      status: 'IN_PROGRESS',
+      providerCallId: params.callSid,
+    },
+  });
+
+  logger.info({ callSid: params.callSid, candidateId }, 'Inbound voice call logged');
+}
+
+// ─── Voice: handle call status callback from Twilio ──────────────────────────
+// Called when a call ends. Updates status and duration on the call record.
+export async function handleVoiceStatus(params: {
+  callSid: string;
+  callStatus: string;  // completed | busy | no-answer | failed | canceled
+  callDuration?: string; // seconds as string
+}): Promise<void> {
+  const call = await prisma.call.findFirst({ where: { providerCallId: params.callSid } });
+  if (!call) {
+    logger.warn({ callSid: params.callSid }, 'Voice status callback for unknown call SID');
+    return;
+  }
+
+  const statusMap: Record<string, string> = {
+    completed: 'COMPLETED',
+    busy: 'MISSED',
+    'no-answer': 'MISSED',
+    failed: 'FAILED',
+    canceled: 'MISSED',
+  };
+
+  const status = statusMap[params.callStatus] ?? 'FAILED';
+  const duration = params.callDuration ? parseInt(params.callDuration, 10) : null;
+
+  await prisma.call.update({
+    where: { id: call.id },
+    data: {
+      status: status as 'COMPLETED' | 'MISSED' | 'FAILED' | 'IN_PROGRESS',
+      ...(duration !== null && { duration }),
+    },
+  });
+
+  logger.info({ callSid: params.callSid, status, duration }, 'Voice call status updated');
+}
+
+// ─── Voice: initiate outbound call ───────────────────────────────────────────
+export async function initiateOutboundCall(params: {
+  candidateId: string;
+  statusCallbackUrl: string;
+  userId: string;
+}): Promise<{ callSid: string }> {
+  const candidate = await prisma.candidate.findUnique({ where: { id: params.candidateId } });
+  if (!candidate) throw new Error('Candidate not found');
+
+  const toNumber = candidate.phoneNumber ?? candidate.whatsappNumber;
+  if (!toNumber) throw new Error('Candidate has no phone number');
+
+  const callSid = await makeOutboundCall(toNumber, params.statusCallbackUrl);
+
+  await prisma.call.create({
+    data: {
+      candidateId: params.candidateId,
+      loggedById: params.userId,
+      direction: 'OUTBOUND',
+      phoneNumber: toNumber,
+      status: 'IN_PROGRESS',
+      providerCallId: callSid,
+    },
+  });
+
+  logger.info({ callSid, candidateId: params.candidateId }, 'Outbound voice call initiated');
+  return { callSid };
 }

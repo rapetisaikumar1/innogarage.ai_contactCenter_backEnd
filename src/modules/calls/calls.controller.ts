@@ -6,8 +6,13 @@ import {
   deleteCall,
   listCallsByCandidate,
   listCalls,
+  handleVoiceInbound,
+  handleVoiceStatus,
+  initiateOutboundCall,
 } from './calls.service';
 import { logCallSchema, updateCallSchema, listCallsSchema } from './calls.types';
+import { validateTwilioSignature, inboundCallTwiml } from '../../lib/twilio';
+import { env } from '../../config/env';
 
 // POST /api/calls  — log a new call
 export async function handleLog(req: Request, res: Response, next: NextFunction) {
@@ -97,6 +102,91 @@ export async function handleList(req: Request, res: Response, next: NextFunction
       },
     });
   } catch (err) {
+    next(err);
+  }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function getTwilioValidUrl(req: Request): string {
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  return `${proto}://${req.get('host')}${req.originalUrl}`;
+}
+
+function isValidTwilioRequest(req: Request): boolean {
+  if (env.NODE_ENV !== 'production') return true;
+  const signature = req.headers['x-twilio-signature'] as string;
+  return validateTwilioSignature(signature, getTwilioValidUrl(req), req.body);
+}
+
+// POST /api/calls/voice/inbound — public, called by Twilio when someone calls our Voice number
+export async function handleVoiceInboundWebhook(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (!isValidTwilioRequest(req)) {
+      return sendError(res, 403, 'Invalid Twilio signature');
+    }
+
+    const { CallSid, From, To } = req.body as Record<string, string>;
+    if (CallSid && From && To) {
+      await handleVoiceInbound({ callSid: CallSid, from: From, to: To });
+    }
+
+    // Respond with TwiML — greet the caller
+    res.set('Content-Type', 'text/xml');
+    res.send(inboundCallTwiml());
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/calls/voice/status — public, called by Twilio when a call ends
+export async function handleVoiceStatusWebhook(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (!isValidTwilioRequest(req)) {
+      return sendError(res, 403, 'Invalid Twilio signature');
+    }
+
+    const { CallSid, CallStatus, CallDuration } = req.body as Record<string, string>;
+    if (CallSid && CallStatus) {
+      await handleVoiceStatus({
+        callSid: CallSid,
+        callStatus: CallStatus,
+        callDuration: CallDuration,
+      });
+    }
+
+    res.sendStatus(204);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/calls/initiate — authenticated, agent triggers outbound call
+export async function handleInitiateCall(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { candidateId } = req.body as { candidateId: string };
+    if (!candidateId) return sendError(res, 400, 'candidateId is required');
+
+    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+    const host = req.get('host');
+    const statusCallbackUrl = `${proto}://${host}/api/calls/voice/status`;
+
+    const result = await initiateOutboundCall({
+      candidateId,
+      statusCallbackUrl,
+      userId: req.user!.userId,
+    });
+
+    sendSuccess(res, result, 201);
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message === 'Candidate not found') {
+      return sendError(res, 404, err.message);
+    }
+    if (err instanceof Error && err.message.includes('no phone number')) {
+      return sendError(res, 400, err.message);
+    }
+    if (err instanceof Error && err.message.includes('TWILIO_VOICE_NUMBER')) {
+      return sendError(res, 503, 'Voice calling is not configured on this server');
+    }
     next(err);
   }
 }
