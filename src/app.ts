@@ -10,6 +10,9 @@ import { requestId } from './middleware/requestId';
 
 const app = express();
 
+// Trust Railway/Render reverse proxy so req.protocol returns https
+app.set('trust proxy', 1);
+
 // Security headers
 app.use(helmet());
 
