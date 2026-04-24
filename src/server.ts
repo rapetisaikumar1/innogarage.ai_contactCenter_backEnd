@@ -3,10 +3,15 @@ import app from './app';
 import { env } from './config/env';
 import { logger } from './lib/logger';
 import { prisma } from './lib/prisma';
+import { initSocketIO } from './lib/socket';
+import { startRenotificationJob } from './lib/renotificationJob';
 
 const PORT = parseInt(env.PORT, 10);
 
 const server = http.createServer(app);
+
+// Initialise Socket.IO on the same HTTP server
+initSocketIO(server);
 
 async function gracefulShutdown(signal: string) {
   logger.info(`${signal} received, shutting down gracefully`);
@@ -47,6 +52,9 @@ async function start() {
   try {
     await prisma.$connect();
     logger.info('Database connected');
+
+    // Start background re-notification job
+    startRenotificationJob();
 
     server.listen(PORT, () => {
       logger.info({ port: PORT, env: env.NODE_ENV }, 'Server started');

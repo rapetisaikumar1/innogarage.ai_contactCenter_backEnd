@@ -14,7 +14,9 @@ import { logger } from '../../lib/logger';
 // register as a Voice Client and place / receive WebRTC calls.
 export async function handleGetToken(req: Request, res: Response, next: NextFunction) {
   try {
-    const identity = env.TWILIO_AGENT_IDENTITY || 'agent';
+    // Use the authenticated user's ID as identity so each agent registers separately.
+    // This ensures inbound calls can be routed to a specific agent's browser.
+    const identity = req.user!.userId;
     const token = generateVoiceAccessToken(identity);
     sendSuccess(res, { token, identity });
   } catch (err: unknown) {

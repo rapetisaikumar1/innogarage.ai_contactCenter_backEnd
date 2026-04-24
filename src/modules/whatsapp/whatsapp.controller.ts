@@ -45,9 +45,12 @@ export async function handleSend(req: Request, res: Response, next: NextFunction
     if (!parsed.success) {
       return sendError(res, 422, 'Validation failed', parsed.error.flatten().fieldErrors);
     }
-    const message = await sendMessage(parsed.data, req.user!.userId);
+    const message = await sendMessage(parsed.data, req.user!.userId, req.user!.role);
     sendSuccess(res, message, 201);
-  } catch (err) {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.startsWith('Access denied')) {
+      return sendError(res, 403, err.message);
+    }
     next(err);
   }
 }
@@ -55,7 +58,8 @@ export async function handleSend(req: Request, res: Response, next: NextFunction
 // GET /api/whatsapp/inbox  — authenticated
 export async function handleInbox(req: Request, res: Response, next: NextFunction) {
   try {
-    const inbox = await listInbox();
+    const statusFilter = req.query.status as string | undefined;
+    const inbox = await listInbox(req.user!.userId, req.user!.role, statusFilter);
     sendSuccess(res, inbox);
   } catch (err) {
     next(err);
@@ -71,7 +75,13 @@ export async function handleListMessages(req: Request, res: Response, next: Next
       return sendError(res, 422, 'Validation failed', parsed.error.flatten().fieldErrors);
     }
     const { page, limit } = parsed.data;
-    const { messages, total } = await listCandidateMessages(candidateId, page, limit);
+    const { messages, total } = await listCandidateMessages(
+      candidateId,
+      page,
+      limit,
+      req.user!.userId,
+      req.user!.role
+    );
     sendSuccess(res, {
       messages,
       pagination: {
@@ -81,7 +91,10 @@ export async function handleListMessages(req: Request, res: Response, next: Next
         totalPages: Math.ceil(total / limit),
       },
     });
-  } catch (err) {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message === 'Access denied') {
+      return sendError(res, 403, 'Access denied');
+    }
     next(err);
   }
 }

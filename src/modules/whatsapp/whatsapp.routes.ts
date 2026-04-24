@@ -1,27 +1,52 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/authenticate';
+import { authorize } from '../../middleware/authorize';
 import {
   handleWebhook,
   handleSend,
   handleInbox,
   handleListMessages,
 } from './whatsapp.controller';
+import {
+  handleAssign,
+  handleReassign,
+  handleUnassign,
+  handleClose,
+  handleReopen,
+  handleGetNotifications,
+  handleMarkRead,
+  handleMarkAllRead,
+} from './whatsapp.assignment.controller';
 
 const router = Router();
 
-// Public: Twilio webhook (no auth — verified by signature in production)
+// ── Public: Twilio webhook ────────────────────────────────────────────────────
 router.post('/webhook', handleWebhook);
 
-// Protected: all other routes require a logged-in user
+// ── All routes below require auth ─────────────────────────────────────────────
 router.use(authenticate);
 
-// GET  /api/whatsapp/inbox                              — shared inbox
+// Inbox (filtered by role in service)
 router.get('/inbox', handleInbox);
 
-// POST /api/whatsapp/send                               — send outbound message
+// Send message
 router.post('/send', handleSend);
 
-// GET  /api/whatsapp/candidates/:candidateId/messages   — conversation thread
+// Conversation thread
 router.get('/candidates/:candidateId/messages', handleListMessages);
+
+// ── Assignment (any authenticated user) ───────────────────────────────────────
+router.post('/conversations/:id/assign', handleAssign);
+
+// ── Admin-only conversation management ───────────────────────────────────────
+router.post('/conversations/:id/reassign', authorize('ADMIN', 'MANAGER'), handleReassign);
+router.post('/conversations/:id/unassign', authorize('ADMIN', 'MANAGER'), handleUnassign);
+router.post('/conversations/:id/close', authorize('ADMIN', 'MANAGER'), handleClose);
+router.post('/conversations/:id/reopen', authorize('ADMIN', 'MANAGER'), handleReopen);
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+router.get('/notifications', handleGetNotifications);
+router.post('/notifications/read-all', handleMarkAllRead);
+router.post('/notifications/:id/read', handleMarkRead);
 
 export default router;

@@ -57,6 +57,20 @@ enum FollowUpStatus {
   RESCHEDULED
 }
 
+enum ConversationStatus {
+  UNASSIGNED
+  ASSIGNED
+  CLOSED
+}
+
+enum AssignmentAction {
+  ASSIGNED
+  REASSIGNED
+  UNASSIGNED
+  CLOSED
+  REOPENED
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -78,6 +92,13 @@ model User {
   auditLogs          AuditLog[]
   uploadedFiles      CandidateFile[]
   loggedCalls        Call[]
+
+  // WhatsApp conversation assignment
+  assignedConversations    Conversation[]              @relation("AssignedConversations")
+  notifications            Notification[]
+  performedAssignments     ConversationAssignmentLog[] @relation("PerformedAssignments")
+  previousAgentAssignments ConversationAssignmentLog[] @relation("PreviousAgentAssignments")
+  newAgentAssignments      ConversationAssignmentLog[] @relation("NewAgentAssignments")
 
   @@map("users")
 }
@@ -105,6 +126,7 @@ model Candidate {
   followUps     FollowUp[]
   statusHistory StatusHistory[]
   files         CandidateFile[]
+  conversation  Conversation?
 
   @@map("candidates")
 }
@@ -126,6 +148,7 @@ model CandidateAssignment {
 model Message {
   id                String           @id @default(cuid())
   candidateId       String
+  conversationId    String?
   direction         MessageDirection
   channel           MessageChannel   @default(WHATSAPP)
   messageText       String
@@ -133,8 +156,9 @@ model Message {
   sentByUserId      String?
   createdAt         DateTime         @default(now())
 
-  candidate  Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  sentBy     User?     @relation(fields: [sentByUserId], references: [id])
+  candidate    Candidate     @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id])
+  sentBy       User?         @relation(fields: [sentByUserId], references: [id])
 
   @@map("messages")
 }
@@ -229,4 +253,63 @@ model AuditLog {
   user User @relation(fields: [userId], references: [id])
 
   @@map("audit_logs")
+}
+
+// ─── WhatsApp Conversation Models ─────────────────────────────────────────────
+
+model Conversation {
+  id                     String             @id @default(cuid())
+  candidateId            String             @unique
+  whatsappPhone          String
+  status                 ConversationStatus @default(UNASSIGNED)
+  assignedAgentId        String?
+  assignedAt             DateTime?
+  lastMessageAt          DateTime           @default(now())
+  lastNotifiedAt         DateTime?
+  notificationCycleCount Int                @default(0)
+  isHighPriority         Boolean            @default(false)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  candidate      Candidate                   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  assignedAgent  User?                       @relation("AssignedConversations", fields: [assignedAgentId], references: [id])
+  messages       Message[]
+  notifications  Notification[]
+  assignmentLogs ConversationAssignmentLog[]
+
+  @@map("conversations")
+}
+
+model Notification {
+  id             String    @id @default(cuid())
+  userId         String
+  conversationId String
+  type           String
+  title          String
+  body           String
+  isRead         Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  clearedAt      DateTime?
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model ConversationAssignmentLog {
+  id                String           @id @default(cuid())
+  conversationId    String
+  action            AssignmentAction
+  performedByUserId String
+  previousAgentId   String?
+  newAgentId        String?
+  createdAt         DateTime         @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  performedBy    User         @relation("PerformedAssignments", fields: [performedByUserId], references: [id])
+  previousAgent  User?        @relation("PreviousAgentAssignments", fields: [previousAgentId], references: [id])
+  newAgent       User?        @relation("NewAgentAssignments", fields: [newAgentId], references: [id])
+
+  @@map("conversation_assignment_logs")
 }

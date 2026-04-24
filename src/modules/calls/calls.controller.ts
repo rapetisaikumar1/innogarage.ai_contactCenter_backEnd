@@ -13,6 +13,7 @@ import {
 import { logCallSchema, updateCallSchema, listCallsSchema } from './calls.types';
 import { validateTwilioSignature, inboundCallTwiml, dialClientTwiml } from '../../lib/twilio';
 import { env } from '../../config/env';
+import { prisma } from '../../lib/prisma';
 
 // POST /api/calls  — log a new call
 export async function handleLog(req: Request, res: Response, next: NextFunction) {
@@ -136,7 +137,17 @@ export async function handleVoiceInboundWebhook(req: Request, res: Response, nex
     const statusCallbackUrl = `${proto}://${req.get('host')}/api/calls/voice/status`;
     res.set('Content-Type', 'text/xml');
     if (env.TWILIO_API_KEY && env.TWILIO_TWIML_APP_SID) {
-      res.send(dialClientTwiml(env.TWILIO_AGENT_IDENTITY || 'agent', statusCallbackUrl));
+      // Ring all active users simultaneously — first to answer handles the call
+      const activeUsers = await prisma.user.findMany({
+        where: { isActive: true },
+        select: { id: true },
+      });
+      const identities = activeUsers.map((u) => u.id);
+      const clientsXml = identities
+        .map((id) => `<Client statusCallbackEvent="initiated ringing answered completed" statusCallback="${statusCallbackUrl}" statusCallbackMethod="POST">${id}</Client>`)
+        .join('');
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">Connecting you to an agent now.</Say><Dial timeout="30" answerOnBridge="true" action="${statusCallbackUrl}" method="POST">${clientsXml}</Dial></Response>`;
+      res.send(twiml);
     } else {
       res.send(inboundCallTwiml());
     }

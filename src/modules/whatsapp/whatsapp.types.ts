@@ -29,10 +29,15 @@ export interface MessageDTO {
 
 export interface ConversationSummary {
   candidateId: string;
+  conversationId: string;
   candidateName: string;
   whatsappNumber: string | null;
   lastMessage: string;
   lastMessageAt: Date;
   lastDirection: 'INBOUND' | 'OUTBOUND';
   unreadCount: number;
+  status: 'UNASSIGNED' | 'ASSIGNED' | 'CLOSED';
+  assignedAgentId: string | null;
+  assignedAgentName: string | null;
+  isHighPriority: boolean;
 }
