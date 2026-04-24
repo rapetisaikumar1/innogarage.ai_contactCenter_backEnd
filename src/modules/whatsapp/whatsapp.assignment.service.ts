@@ -93,8 +93,10 @@ export async function assignConversation(
   emitToAll('conversation:assigned', {
     conversationId,
     candidateId: conversation.candidateId,
+    status: 'ASSIGNED',
     assignedAgentId: agentId,
     assignedAgentName: conversation.assignedAgentName,
+    isHighPriority: false,
   });
 
   // ── Emit: remove from inbox for everyone except assigned agent + admins ───
