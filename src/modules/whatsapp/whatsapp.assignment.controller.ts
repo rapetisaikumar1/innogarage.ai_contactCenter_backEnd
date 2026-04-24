@@ -10,26 +10,38 @@ import {
 import { prisma } from '../../lib/prisma';
 import { emitToUser } from '../../lib/socket';
 
-// POST /api/whatsapp/conversations/:id/read  — mark all notifications for this conversation as read
-// Only clears for AGENTs opening a chat. Admins/Managers retain notifications until the agent responds.
+// POST /api/whatsapp/conversations/:id/read
+// Agent opens chat → clears notifications for agent + all admins/managers.
+// Admin/Manager opens chat → no-op (they wait for agent to respond).
 export async function handleMarkConversationRead(req: Request, res: Response, next: NextFunction) {
   try {
     const { id: conversationId } = req.params;
     const userId = req.user!.userId;
     const role = req.user!.role;
 
-    // Admins & Managers: do not clear on chat open — they clear when agent sends a reply
+    // Admins & Managers: do not clear on chat open
     if (role !== 'AGENT') {
       return sendSuccess(res, { ok: true, skipped: true });
     }
 
+    // Find all admins/managers to also clear their notifications
+    const admins = await prisma.user.findMany({
+      where: { isActive: true, role: { in: ['ADMIN', 'MANAGER'] } },
+      select: { id: true },
+    });
+    const adminIds = admins.map((a) => a.id);
+    const allUserIds = [...new Set([userId, ...adminIds])];
+
+    // Clear for everyone at once
     await prisma.notification.updateMany({
-      where: { conversationId, userId, isRead: false, clearedAt: null },
+      where: { conversationId, userId: { in: allUserIds }, isRead: false, clearedAt: null },
       data: { isRead: true },
     });
 
-    // Tell this agent's socket to refresh badge counts
-    emitToUser(userId, 'notifications:cleared', { conversationId });
+    // Notify each user via socket so their badges update immediately
+    for (const uid of allUserIds) {
+      emitToUser(uid, 'notifications:cleared', { conversationId });
+    }
 
     sendSuccess(res, { ok: true });
   } catch (err) {
