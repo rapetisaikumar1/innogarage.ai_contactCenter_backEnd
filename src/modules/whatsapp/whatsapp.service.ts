@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { sendWhatsAppMessage } from '../../lib/twilio';
 import { logger } from '../../lib/logger';
-import { emitToAll, emitToUsers } from '../../lib/socket';
+import { emitToAll, emitToUser, emitToUsers } from '../../lib/socket';
 import { notifyUsers } from '../../lib/notifications';
 import { SendMessageInput, ConversationSummary, MessageDTO } from './whatsapp.types';
 
@@ -210,6 +210,21 @@ export async function sendMessage(
       sentBy: { id: sentByUserId },
       createdAt: message.createdAt,
     });
+
+    // Agent sent a reply → clear admin/manager notifications for this conversation
+    // so their bell badge and conversation badges go away
+    await prisma.notification.updateMany({
+      where: {
+        conversationId: conversation.id,
+        isRead: false,
+        clearedAt: null,
+        user: { role: { in: ['ADMIN', 'MANAGER'] } },
+      },
+      data: { isRead: true },
+    });
+    for (const adminId of adminIds) {
+      emitToUser(adminId, 'notifications:cleared', { conversationId: conversation.id });
+    }
   }
 
   await prisma.auditLog.create({

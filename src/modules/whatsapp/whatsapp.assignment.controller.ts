@@ -11,17 +11,24 @@ import { prisma } from '../../lib/prisma';
 import { emitToUser } from '../../lib/socket';
 
 // POST /api/whatsapp/conversations/:id/read  — mark all notifications for this conversation as read
+// Only clears for AGENTs opening a chat. Admins/Managers retain notifications until the agent responds.
 export async function handleMarkConversationRead(req: Request, res: Response, next: NextFunction) {
   try {
     const { id: conversationId } = req.params;
     const userId = req.user!.userId;
+    const role = req.user!.role;
+
+    // Admins & Managers: do not clear on chat open — they clear when agent sends a reply
+    if (role !== 'AGENT') {
+      return sendSuccess(res, { ok: true, skipped: true });
+    }
 
     await prisma.notification.updateMany({
       where: { conversationId, userId, isRead: false, clearedAt: null },
       data: { isRead: true },
     });
 
-    // Tell this user's socket to refresh badge counts
+    // Tell this agent's socket to refresh badge counts
     emitToUser(userId, 'notifications:cleared', { conversationId });
 
     sendSuccess(res, { ok: true });
