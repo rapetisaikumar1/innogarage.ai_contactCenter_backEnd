@@ -11,28 +11,11 @@ import { prisma } from '../../lib/prisma';
 import { emitToUser } from '../../lib/socket';
 
 // POST /api/whatsapp/conversations/:id/read
-// Agent opens chat → clears ONLY the agent's own notifications.
-// Admin/Manager opens chat → no-op (their badges stay until the agent responds).
+// No-op: badges are no longer cleared on chat open.
+// They clear only when the agent sends a reply (handled in sendMessage).
 export async function handleMarkConversationRead(req: Request, res: Response, next: NextFunction) {
   try {
-    const { id: conversationId } = req.params;
-    const userId = req.user!.userId;
-    const role = req.user!.role;
-
-    // Admins & Managers: do not clear on chat open
-    if (role !== 'AGENT') {
-      return sendSuccess(res, { ok: true, skipped: true });
-    }
-
-    await prisma.notification.updateMany({
-      where: { conversationId, userId, isRead: false, clearedAt: null },
-      data: { isRead: true },
-    });
-
-    // Tell only this agent's socket to update their badge
-    emitToUser(userId, 'notifications:cleared', { conversationId });
-
-    sendSuccess(res, { ok: true });
+    sendSuccess(res, { ok: true, skipped: true });
   } catch (err) {
     next(err);
   }

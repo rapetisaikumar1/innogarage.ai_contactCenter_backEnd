@@ -312,19 +312,38 @@ export async function listInbox(
     },
   });
 
-  // Fetch unread notification counts for this user in one query
+  // Fetch unread count per conversation = number of INBOUND messages since the
+  // last OUTBOUND (agent reply). This gives accurate per-conversation counts
+  // regardless of notification deduplication.
   const conversationIds = conversations.map((c) => c.id);
-  const unreadNotifs = await prisma.notification.groupBy({
+
+  // 1. Latest OUTBOUND message timestamp per conversation
+  const lastOutbounds = await prisma.message.groupBy({
     by: ['conversationId'],
-    where: {
-      userId: requestingUserId,
-      conversationId: { in: conversationIds },
-      isRead: false,
-      clearedAt: null,
-    },
-    _count: { id: true },
+    where: { conversationId: { in: conversationIds }, direction: 'OUTBOUND', channel: 'WHATSAPP' },
+    _max: { createdAt: true },
   });
-  const unreadMap = new Map(unreadNotifs.map((n) => [n.conversationId, n._count.id]));
+  const outboundMap = new Map(
+    lastOutbounds
+      .filter((m) => m.conversationId !== null)
+      .map((m) => [m.conversationId as string, m._max.createdAt as Date | null])
+  );
+
+  // 2. All INBOUND messages for these conversations
+  const inboundMsgs = await prisma.message.findMany({
+    where: { conversationId: { in: conversationIds }, direction: 'INBOUND', channel: 'WHATSAPP' },
+    select: { conversationId: true, createdAt: true },
+  });
+
+  // 3. Count per conversation: INBOUND messages that arrived after last OUTBOUND
+  const inboundCountMap = new Map<string, number>();
+  for (const msg of inboundMsgs) {
+    const convId = msg.conversationId!;
+    const lastOut = outboundMap.get(convId) ?? null;
+    if (!lastOut || msg.createdAt > lastOut) {
+      inboundCountMap.set(convId, (inboundCountMap.get(convId) ?? 0) + 1);
+    }
+  }
 
   return conversations.map((conv) => {
     const lastMsg = conv.messages[0];
@@ -340,7 +359,7 @@ export async function listInbox(
         : '',
       lastMessageAt: lastMsg?.createdAt ?? conv.createdAt,
       lastDirection: (lastMsg?.direction ?? 'INBOUND') as 'INBOUND' | 'OUTBOUND',
-      unreadCount: unreadMap.get(conv.id) ?? 0,
+      unreadCount: inboundCountMap.get(conv.id) ?? 0,
       status: conv.status,
       assignedAgentId: conv.assignedAgentId,
       assignedAgentName: conv.assignedAgent?.name ?? null,
