@@ -23,70 +23,59 @@ export async function assignConversation(
 ): Promise<AssignResult> {
   let result: AssignResult = { ok: false, reason: 'not_found' };
 
-  await prisma.$transaction(async (tx) => {
-    // Lock the row for update to prevent race conditions
-    const conv = await tx.$queryRaw<{ id: string; status: string; assigned_agent_id: string | null }[]>`
-      SELECT id, status, assigned_agent_id
-      FROM conversations
-      WHERE id = ${conversationId}
-      FOR UPDATE
-    `;
+  // Read current state first
+  const conv = await prisma.conversation.findUnique({ where: { id: conversationId } });
 
-    if (!conv.length) {
-      result = { ok: false, reason: 'not_found' };
-      return;
-    }
+  if (!conv) return { ok: false, reason: 'not_found' };
+  if (conv.status === 'CLOSED') return { ok: false, reason: 'closed' };
+  if (conv.status === 'ASSIGNED') return { ok: false, reason: 'already_assigned' };
 
-    const current = conv[0];
-
-    if (current.status === 'CLOSED') {
-      result = { ok: false, reason: 'closed' };
-      return;
-    }
-
-    if (current.status === 'ASSIGNED') {
-      result = { ok: false, reason: 'already_assigned' };
-      return;
-    }
-
-    // Assign it
-    const updated = await tx.conversation.update({
-      where: { id: conversationId },
-      data: {
-        status: 'ASSIGNED',
-        assignedAgentId: agentId,
-        assignedAt: new Date(),
-        isHighPriority: false,
-        notificationCycleCount: 0,
-      },
-      include: {
-        assignedAgent: { select: { id: true, name: true } },
-        candidate: { select: { id: true, fullName: true } },
-      },
-    });
-
-    // Audit log
-    await tx.conversationAssignmentLog.create({
-      data: {
-        conversationId,
-        action: 'ASSIGNED',
-        performedByUserId: agentId,
-        newAgentId: agentId,
-      },
-    });
-
-    result = {
-      ok: true,
-      conversation: {
-        id: updated.id,
-        candidateId: updated.candidateId,
-        status: updated.status,
-        assignedAgentId: updated.assignedAgentId,
-        assignedAgentName: updated.assignedAgent?.name ?? null,
-        isHighPriority: updated.isHighPriority,
-      },
-    };
+  // Atomic update: only succeeds if status is still UNASSIGNED
+  // Uses updateMany with a where-guard — 0 rows updated = someone else got it first
+  const updateResult = await prisma.conversation.updateMany({
+    where: { id: conversationId, status: 'UNASSIGNED' },
+    data: {
+      status: 'ASSIGNED',
+      assignedAgentId: agentId,
+      assignedAt: new Date(),
+      isHighPriority: false,
+      notificationCycleCount: 0,
+    },
   });
+
+  if (updateResult.count === 0) {
+    // Race condition — another agent assigned it first
+    return { ok: false, reason: 'already_assigned' };
+  }
+
+  const updated = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    include: {
+      assignedAgent: { select: { id: true, name: true } },
+      candidate: { select: { id: true, fullName: true } },
+    },
+  });
+
+  await prisma.conversationAssignmentLog.create({
+    data: {
+      conversationId,
+      action: 'ASSIGNED',
+      performedByUserId: agentId,
+      newAgentId: agentId,
+    },
+  });
+
+  result = {
+    ok: true,
+    conversation: {
+      id: updated!.id,
+      candidateId: updated!.candidateId,
+      status: updated!.status,
+      assignedAgentId: updated!.assignedAgentId,
+      assignedAgentName: updated!.assignedAgent?.name ?? null,
+      isHighPriority: updated!.isHighPriority,
+    },
+  };
 
   if (!result.ok) return result;
 
