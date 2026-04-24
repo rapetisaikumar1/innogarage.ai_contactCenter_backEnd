@@ -8,6 +8,27 @@ import {
   reopenConversation,
 } from './whatsapp.assignment.service';
 import { prisma } from '../../lib/prisma';
+import { emitToUser } from '../../lib/socket';
+
+// POST /api/whatsapp/conversations/:id/read  — mark all notifications for this conversation as read
+export async function handleMarkConversationRead(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id: conversationId } = req.params;
+    const userId = req.user!.userId;
+
+    await prisma.notification.updateMany({
+      where: { conversationId, userId, isRead: false, clearedAt: null },
+      data: { isRead: true },
+    });
+
+    // Tell this user's socket to refresh badge counts
+    emitToUser(userId, 'notifications:cleared', { conversationId });
+
+    sendSuccess(res, { ok: true });
+  } catch (err) {
+    next(err);
+  }
+}
 
 // POST /api/whatsapp/conversations/:id/assign  — any authenticated user
 export async function handleAssign(req: Request, res: Response, next: NextFunction) {

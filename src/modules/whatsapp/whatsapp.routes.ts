@@ -16,6 +16,7 @@ import {
   handleGetNotifications,
   handleMarkRead,
   handleMarkAllRead,
+  handleMarkConversationRead,
 } from './whatsapp.assignment.controller';
 
 const router = Router();
@@ -37,6 +38,7 @@ router.get('/candidates/:candidateId/messages', handleListMessages);
 
 // ── Assignment (any authenticated user) ───────────────────────────────────────
 router.post('/conversations/:id/assign', handleAssign);
+router.post('/conversations/:id/read', handleMarkConversationRead);
 
 // ── Admin-only conversation management ───────────────────────────────────────
 router.post('/conversations/:id/reassign', authorize('ADMIN', 'MANAGER'), handleReassign);

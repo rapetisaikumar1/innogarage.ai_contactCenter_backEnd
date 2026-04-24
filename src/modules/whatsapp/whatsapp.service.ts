@@ -296,6 +296,20 @@ export async function listInbox(
     },
   });
 
+  // Fetch unread notification counts for this user in one query
+  const conversationIds = conversations.map((c) => c.id);
+  const unreadNotifs = await prisma.notification.groupBy({
+    by: ['conversationId'],
+    where: {
+      userId: requestingUserId,
+      conversationId: { in: conversationIds },
+      isRead: false,
+      clearedAt: null,
+    },
+    _count: { id: true },
+  });
+  const unreadMap = new Map(unreadNotifs.map((n) => [n.conversationId, n._count.id]));
+
   return conversations.map((conv) => {
     const lastMsg = conv.messages[0];
     return {
@@ -310,7 +324,7 @@ export async function listInbox(
         : '',
       lastMessageAt: lastMsg?.createdAt ?? conv.createdAt,
       lastDirection: (lastMsg?.direction ?? 'INBOUND') as 'INBOUND' | 'OUTBOUND',
-      unreadCount: 0,
+      unreadCount: unreadMap.get(conv.id) ?? 0,
       status: conv.status,
       assignedAgentId: conv.assignedAgentId,
       assignedAgentName: conv.assignedAgent?.name ?? null,
