@@ -37,25 +37,37 @@ export async function listCandidates(query: ListCandidatesQuery, userId: string,
   const { page, limit, search, status, assignedToMe } = query;
   const skip = (page - 1) * limit;
 
-  const where: Prisma.CandidateWhereInput = {};
+  // Build AND conditions so search + status + agent-scope can all coexist
+  const andConditions: Prisma.CandidateWhereInput[] = [];
 
   if (search) {
-    where.OR = [
-      { fullName: { contains: search, mode: 'insensitive' } },
-      { phoneNumber: { contains: search } },
-      { whatsappNumber: { contains: search } },
-      { email: { contains: search, mode: 'insensitive' } },
-    ];
+    andConditions.push({
+      OR: [
+        { fullName: { contains: search, mode: 'insensitive' } },
+        { phoneNumber: { contains: search } },
+        { whatsappNumber: { contains: search } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ],
+    });
   }
 
   if (status) {
-    where.status = status;
+    andConditions.push({ status });
   }
 
-  // Agents only see assigned candidates unless filtering explicitly
+  // Agents see candidates they are explicitly assigned to (CandidateAssignment)
+  // OR whose active WhatsApp conversation is assigned to them.
+  // This handles auto-created WhatsApp candidates that never got a CandidateAssignment.
   if (userRole === 'AGENT' || assignedToMe) {
-    where.assignments = { some: { userId } };
+    andConditions.push({
+      OR: [
+        { assignments: { some: { userId } } },
+        { conversation: { assignedAgentId: userId, status: 'ASSIGNED' } },
+      ],
+    });
   }
+
+  const where: Prisma.CandidateWhereInput = andConditions.length > 0 ? { AND: andConditions } : {};
 
   const [candidates, total] = await prisma.$transaction([
     prisma.candidate.findMany({
