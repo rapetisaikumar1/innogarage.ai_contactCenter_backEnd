@@ -65,6 +65,17 @@ export async function assignConversation(
     },
   });
 
+  // ── Also assign the candidate to the agent so Candidates page stays in sync ─
+  const candidateId = updated!.candidateId;
+  const existingCandidateAssignment = await prisma.candidateAssignment.findFirst({
+    where: { candidateId, userId: agentId },
+  });
+  if (!existingCandidateAssignment) {
+    await prisma.candidateAssignment.create({
+      data: { candidateId, userId: agentId, assignedById: agentId },
+    });
+  }
+
   result = {
     ok: true,
     conversation: {
@@ -137,6 +148,16 @@ export async function reassignConversation(
       newAgentId,
     },
   });
+
+  // Keep candidate assignment in sync with the new agent
+  const existingCandidateAssignment = await prisma.candidateAssignment.findFirst({
+    where: { candidateId: updated.candidateId, userId: newAgentId },
+  });
+  if (!existingCandidateAssignment) {
+    await prisma.candidateAssignment.create({
+      data: { candidateId: updated.candidateId, userId: newAgentId, assignedById: performedByUserId },
+    });
+  }
 
   // Notify old agent their conversation was reassigned
   if (previousAgentId && previousAgentId !== newAgentId) {
