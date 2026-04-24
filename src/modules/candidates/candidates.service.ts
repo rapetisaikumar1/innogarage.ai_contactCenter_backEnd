@@ -55,9 +55,10 @@ export async function listCandidates(query: ListCandidatesQuery, userId: string,
     andConditions.push({ status });
   }
 
-  // Only apply the "assignedToMe" filter when explicitly requested (e.g. from a filter button).
-  // All roles (ADMIN, MANAGER, AGENT) see ALL candidates by default.
-  if (assignedToMe) {
+  // Agents see candidates they are explicitly assigned to (CandidateAssignment)
+  // OR whose active WhatsApp conversation is assigned to them.
+  // This handles auto-created WhatsApp candidates that never got a CandidateAssignment.
+  if (userRole === 'AGENT' || assignedToMe) {
     andConditions.push({
       OR: [
         { assignments: { some: { userId } } },
