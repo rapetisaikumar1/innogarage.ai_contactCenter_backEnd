@@ -114,8 +114,10 @@ function getTwilioValidUrl(req: Request): string {
 }
 
 function isValidTwilioRequest(req: Request): boolean {
-  if (env.NODE_ENV !== 'production') return true;
-  const signature = req.headers['x-twilio-signature'] as string;
+  // SECURITY: validate signature unless explicitly skipped (local dev only)
+  if (env.SKIP_WEBHOOK_VALIDATION) return true;
+  const signature = req.headers['x-twilio-signature'] as string | undefined;
+  if (!signature) return false;
   return validateTwilioSignature(signature, getTwilioValidUrl(req), req.body);
 }
 

@@ -13,9 +13,12 @@ import { env } from '../../config/env';
 // POST /api/whatsapp/webhook  — public, called by Twilio
 export async function handleWebhook(req: Request, res: Response, next: NextFunction) {
   try {
-    // Validate Twilio signature in production
-    if (env.NODE_ENV === 'production') {
-      const signature = req.headers['x-twilio-signature'] as string;
+    // SECURITY: validate Twilio signature on every webhook call. Only skip when an
+    // operator explicitly opts out via SKIP_WEBHOOK_VALIDATION=true (local dev only).
+    if (!env.SKIP_WEBHOOK_VALIDATION) {
+      const signature = req.headers['x-twilio-signature'] as string | undefined;
+      if (!signature) return sendError(res, 403, 'Missing Twilio signature');
+
       // Use x-forwarded-proto so we get https behind Railway's proxy
       const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
       const url = `${proto}://${req.get('host')}${req.originalUrl}`;

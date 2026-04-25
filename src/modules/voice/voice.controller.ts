@@ -33,8 +33,10 @@ export async function handleGetToken(req: Request, res: Response, next: NextFunc
 // dials the real phone number, and creates a call record in the DB.
 export async function handleOutboundTwiml(req: Request, res: Response, next: NextFunction) {
   try {
-    if (env.NODE_ENV === 'production') {
-      const signature = req.headers['x-twilio-signature'] as string;
+    // SECURITY: validate signature unless explicitly skipped (local dev only)
+    if (!env.SKIP_WEBHOOK_VALIDATION) {
+      const signature = req.headers['x-twilio-signature'] as string | undefined;
+      if (!signature) return sendError(res, 403, 'Missing Twilio signature');
       const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
       const url = `${proto}://${req.get('host')}${req.originalUrl}`;
       if (!validateTwilioSignature(signature, url, req.body)) {

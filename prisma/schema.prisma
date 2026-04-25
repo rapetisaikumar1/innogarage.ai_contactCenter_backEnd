@@ -136,6 +136,9 @@ model Candidate {
   files         CandidateFile[]
   conversation  Conversation?
 
+  @@index([status])
+  @@index([phoneNumber])
+  @@index([createdAt])
   @@map("candidates")
 }
 
@@ -150,6 +153,8 @@ model CandidateAssignment {
   user       User      @relation("AssignedToUser", fields: [userId], references: [id])
   assignedBy User      @relation("AssignedByUser", fields: [assignedById], references: [id])
 
+  @@index([candidateId])
+  @@index([userId])
   @@map("candidate_assignments")
 }
 
@@ -168,6 +173,9 @@ model Message {
   conversation Conversation? @relation(fields: [conversationId], references: [id])
   sentBy       User?         @relation(fields: [sentByUserId], references: [id])
 
+  @@index([candidateId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([direction])
   @@map("messages")
 }
 
@@ -186,6 +194,8 @@ model Call {
   candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   loggedBy  User      @relation(fields: [loggedById], references: [id])
 
+  @@index([candidateId, createdAt])
+  @@index([loggedById])
   @@map("calls")
 }
 
@@ -199,6 +209,7 @@ model Note {
   candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id])
 
+  @@index([candidateId, createdAt])
   @@map("notes")
 }
 
@@ -215,6 +226,8 @@ model FollowUp {
   candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id])
 
+  @@index([userId, status, dueAt])
+  @@index([candidateId])
   @@map("follow_ups")
 }
 
@@ -229,6 +242,7 @@ model StatusHistory {
   candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   changedBy User      @relation(fields: [changedById], references: [id])
 
+  @@index([candidateId, changedAt])
   @@map("status_history")
 }
 
@@ -260,6 +274,8 @@ model AuditLog {
 
   user User @relation(fields: [userId], references: [id])
 
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
   @@map("audit_logs")
 }
 
@@ -285,6 +301,8 @@ model Conversation {
   notifications  Notification[]
   assignmentLogs ConversationAssignmentLog[]
 
+  @@index([assignedAgentId, status])
+  @@index([status, lastMessageAt])
   @@map("conversations")
 }
 
@@ -302,6 +320,8 @@ model Notification {
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
+  @@index([userId, clearedAt, createdAt])
+  @@index([conversationId])
   @@map("notifications")
 }
 
@@ -319,5 +339,6 @@ model ConversationAssignmentLog {
   previousAgent  User?        @relation("PreviousAgentAssignments", fields: [previousAgentId], references: [id])
   newAgent       User?        @relation("NewAgentAssignments", fields: [newAgentId], references: [id])
 
+  @@index([conversationId, createdAt])
   @@map("conversation_assignment_logs")
 }
