@@ -177,6 +177,9 @@ export async function reassignConversation(
 
   // Notify old agent their conversation was reassigned
   if (previousAgentId && previousAgentId !== newAgentId) {
+    // Clear previous agent's bell notifications for this conversation
+    await clearNotificationsForUsers(conversationId, [previousAgentId]);
+    emitToUsers([previousAgentId], 'notifications:cleared', { conversationId });
     emitToUsers([previousAgentId], 'conversation:removed_from_inbox', { conversationId });
   }
 

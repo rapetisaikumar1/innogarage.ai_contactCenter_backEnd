@@ -211,17 +211,16 @@ export async function sendMessage(
       createdAt: message.createdAt,
     });
 
-    // Agent sent a reply → clear ALL remaining notifications for this conversation
-    // (agent + admin/manager) and emit to everyone so every badge disappears
+    // Agent sent a reply → fully clear (clearedAt) notifications for this conversation
+    // so they don't accumulate in the bell across sessions.
     const allRecipientIds = [...new Set([sentByUserId, ...adminIds])];
     await prisma.notification.updateMany({
       where: {
         conversationId: conversation.id,
         userId: { in: allRecipientIds },
-        isRead: false,
         clearedAt: null,
       },
-      data: { isRead: true },
+      data: { isRead: true, clearedAt: new Date() },
     });
     for (const uid of allRecipientIds) {
       emitToUser(uid, 'notifications:cleared', { conversationId: conversation.id });
