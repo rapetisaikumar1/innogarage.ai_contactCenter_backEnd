@@ -145,7 +145,7 @@ export async function createCandidate(input: CreateCandidateInput, createdByUser
       experience: input.experience,
       preferredRole: input.preferredRole,
       source: input.source,
-      status: CandidateStatus.NEW,
+      status: CandidateStatus.INITIAL_EVALUATION_DONE,
       // Auto-assign to creator if they are an agent
       assignments: {
         create: {

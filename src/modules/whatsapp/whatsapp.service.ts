@@ -41,7 +41,7 @@ export async function handleInboundMessage(params: {
         fullName: `Unknown (${phoneNumber})`,
         phoneNumber,
         whatsappNumber: phoneNumber,
-        status: 'NEW',
+        status: 'INITIAL_EVALUATION_DONE',
       },
     });
     logger.info({ phoneNumber, candidateId: candidate.id }, 'Auto-created candidate');

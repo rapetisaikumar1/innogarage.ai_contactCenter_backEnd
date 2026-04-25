@@ -153,7 +153,7 @@ export async function handleVoiceInbound(params: {
       data: {
         fullName: `Unknown Caller (${phoneNumber})`,
         phoneNumber,
-        status: 'NEW',
+        status: 'INITIAL_EVALUATION_DONE',
       },
     });
     candidateId = created.id;
