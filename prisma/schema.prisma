@@ -19,14 +19,13 @@ enum Role {
 }
 
 enum CandidateStatus {
-  NEW
-  CONTACTED
-  INTERESTED
-  DOCUMENTS_PENDING
-  INTERVIEW_SCHEDULED
-  FOLLOW_UP_REQUIRED
-  CLOSED_WON
-  CLOSED_LOST
+  INITIAL_EVALUATION_DONE
+  AWAITING_RESUME
+  RESUME_SHARED
+  MARKETING_STARTED
+  CANDIDATE_GOT_OFFER
+  BGC_ONGOING
+  STARTED_WORKING
 }
 
 enum MessageDirection {
@@ -122,7 +121,7 @@ model Candidate {
   skills          String?
   experience      String?
   preferredRole   String?
-  status          CandidateStatus @default(NEW)
+  status          CandidateStatus @default(INITIAL_EVALUATION_DONE)
   source          String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt

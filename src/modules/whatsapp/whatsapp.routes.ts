@@ -40,8 +40,8 @@ router.get('/candidates/:candidateId/messages', handleListMessages);
 router.post('/conversations/:id/assign', handleAssign);
 router.post('/conversations/:id/read', handleMarkConversationRead);
 
-// ── Admin-only conversation management ───────────────────────────────────────
-router.post('/conversations/:id/reassign', authorize('ADMIN', 'MANAGER'), handleReassign);
+// ── Admin/Manager reassign; AGENT can transfer their own conversation ─────────
+router.post('/conversations/:id/reassign', authorize('ADMIN', 'MANAGER', 'AGENT'), handleReassign);
 router.post('/conversations/:id/unassign', authorize('ADMIN', 'MANAGER'), handleUnassign);
 router.post('/conversations/:id/close', authorize('ADMIN', 'MANAGER'), handleClose);
 router.post('/conversations/:id/reopen', authorize('ADMIN', 'MANAGER'), handleReopen);
