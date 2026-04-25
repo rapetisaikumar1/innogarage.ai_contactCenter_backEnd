@@ -6,7 +6,7 @@ export interface AgentDTO {
   email: string;
   role: string;
   isActive: boolean;
-  availability: 'AVAILABLE' | 'BUSY' | 'OFFLINE';
+  availability: 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE';
   assignedConversationCount: number;
 }
 
@@ -47,7 +47,7 @@ export async function listAgents(): Promise<AgentDTO[]> {
     email: u.email,
     role: u.role,
     isActive: u.isActive,
-    availability: (u.availability ?? 'OFFLINE') as 'AVAILABLE' | 'BUSY' | 'OFFLINE',
+    availability: (u.availability ?? 'OFFLINE') as 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE',
     assignedConversationCount: u._count.assignedConversations,
   }));
 }
@@ -89,7 +89,7 @@ export async function getAgentCandidates(agentId: string): Promise<AgentCandidat
 // ─── Update agent's own availability ─────────────────────────────────────────
 export async function updateAgentAvailability(
   userId: string,
-  availability: 'AVAILABLE' | 'BUSY' | 'OFFLINE'
+  availability: 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE'
 ): Promise<AgentDTO> {
   const updated = await prisma.user.update({
     where: { id: userId },
@@ -111,7 +111,7 @@ export async function updateAgentAvailability(
     email: updated.email,
     role: updated.role,
     isActive: updated.isActive,
-    availability: (updated.availability ?? 'OFFLINE') as 'AVAILABLE' | 'BUSY' | 'OFFLINE',
+    availability: (updated.availability ?? 'OFFLINE') as 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE',
     assignedConversationCount: updated._count.assignedConversations,
   };
 }

@@ -74,6 +74,7 @@ enum AssignmentAction {
 enum UserAvailability {
   AVAILABLE
   BUSY
+  AWAY
   OFFLINE
 }
 

@@ -27,11 +27,11 @@ export async function handleGetAgentCandidates(req: Request, res: Response, next
 export async function handleUpdateAvailability(req: Request, res: Response, next: NextFunction) {
   try {
     const { availability } = req.body as { availability?: string };
-    const allowed = ['AVAILABLE', 'BUSY', 'OFFLINE'];
+    const allowed = ['AVAILABLE', 'BUSY', 'AWAY', 'OFFLINE'];
     if (!availability || !allowed.includes(availability)) {
       return sendError(res, 422, `availability must be one of: ${allowed.join(', ')}`);
     }
-    const agent = await updateAgentAvailability(req.user!.userId, availability as 'AVAILABLE' | 'BUSY' | 'OFFLINE');
+    const agent = await updateAgentAvailability(req.user!.userId, availability as 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE');
     sendSuccess(res, agent);
   } catch (err) {
     next(err);
