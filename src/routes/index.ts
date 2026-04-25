@@ -11,6 +11,7 @@ import callNestedRoutes from '../modules/calls/calls.nested.routes';
 import voiceRoutes from '../modules/voice/voice.routes';
 import dashboardRoutes from '../modules/dashboard/dashboard.routes';
 import settingsRoutes from '../modules/settings/settings.routes';
+import agentRoutes from '../modules/agents/agents.routes';
 
 const router = Router();
 
@@ -26,7 +27,6 @@ router.use('/calls', callRoutes);
 router.use('/voice', voiceRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/settings', settingsRoutes);
-
-// Additional module routes will be added here as modules are built
+router.use('/agents', agentRoutes);
 
 export default router;

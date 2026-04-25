@@ -129,35 +129,51 @@ export async function reassignConversation(
 
   const previousAgentId = conv.assignedAgentId;
 
-  const updated = await prisma.conversation.update({
-    where: { id: conversationId },
-    data: {
-      status: 'ASSIGNED',
-      assignedAgentId: newAgentId,
-      assignedAt: new Date(),
-    },
-    include: { assignedAgent: { select: { id: true, name: true } } },
-  });
-
-  await prisma.conversationAssignmentLog.create({
-    data: {
-      conversationId,
-      action: 'REASSIGNED',
-      performedByUserId,
-      previousAgentId,
-      newAgentId,
-    },
-  });
-
-  // Keep candidate assignment in sync with the new agent
-  const existingCandidateAssignment = await prisma.candidateAssignment.findFirst({
-    where: { candidateId: updated.candidateId, userId: newAgentId },
-  });
-  if (!existingCandidateAssignment) {
-    await prisma.candidateAssignment.create({
-      data: { candidateId: updated.candidateId, userId: newAgentId, assignedById: performedByUserId },
+  // Atomic: update conversation + log + swap CandidateAssignment in a transaction
+  const updated = await prisma.$transaction(async (tx) => {
+    const updatedConv = await tx.conversation.update({
+      where: { id: conversationId },
+      data: {
+        status: 'ASSIGNED',
+        assignedAgentId: newAgentId,
+        assignedAt: new Date(),
+      },
+      include: { assignedAgent: { select: { id: true, name: true } } },
     });
-  }
+
+    await tx.conversationAssignmentLog.create({
+      data: {
+        conversationId,
+        action: 'REASSIGNED',
+        performedByUserId,
+        previousAgentId,
+        newAgentId,
+      },
+    });
+
+    // Remove old agent's CandidateAssignment (previous agent loses access)
+    if (previousAgentId && previousAgentId !== newAgentId) {
+      await tx.candidateAssignment.deleteMany({
+        where: { candidateId: updatedConv.candidateId, userId: previousAgentId },
+      });
+    }
+
+    // Ensure new agent has a CandidateAssignment record
+    const existingAssignment = await tx.candidateAssignment.findFirst({
+      where: { candidateId: updatedConv.candidateId, userId: newAgentId },
+    });
+    if (!existingAssignment) {
+      await tx.candidateAssignment.create({
+        data: {
+          candidateId: updatedConv.candidateId,
+          userId: newAgentId,
+          assignedById: performedByUserId,
+        },
+      });
+    }
+
+    return updatedConv;
+  });
 
   // Notify old agent their conversation was reassigned
   if (previousAgentId && previousAgentId !== newAgentId) {

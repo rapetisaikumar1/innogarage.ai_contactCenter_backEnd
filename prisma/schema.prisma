@@ -71,6 +71,12 @@ enum AssignmentAction {
   REOPENED
 }
 
+enum UserAvailability {
+  AVAILABLE
+  BUSY
+  OFFLINE
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -80,6 +86,7 @@ model User {
   passwordHash String
   role         Role     @default(AGENT)
   isActive     Boolean  @default(true)
+  availability UserAvailability @default(AVAILABLE)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
