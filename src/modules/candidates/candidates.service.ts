@@ -249,25 +249,61 @@ export async function updateCandidateStatus(
 }
 
 export async function assignCandidate(candidateId: string, assignToUserId: string, assignedById: string) {
-  const existing = await prisma.candidate.findUnique({ where: { id: candidateId }, select: { id: true } });
+  const existing = await prisma.candidate.findUnique({
+    where: { id: candidateId },
+    select: {
+      id: true,
+      conversation: {
+        select: {
+          id: true,
+          status: true,
+          assignedAgentId: true,
+        },
+      },
+    },
+  });
   if (!existing) return null;
 
-  // Remove existing assignments and create new one
-  await prisma.$transaction([
-    prisma.candidateAssignment.deleteMany({ where: { candidateId } }),
-    prisma.candidateAssignment.create({
-      data: { candidateId, userId: assignToUserId, assignedById },
-    }),
-    prisma.auditLog.create({
-      data: {
-        userId: assignedById,
-        action: 'ASSIGN',
-        entityType: 'Candidate',
-        entityId: candidateId,
-        metadata: { assignedTo: assignToUserId },
-      },
-    }),
-  ]);
+  if (existing.conversation && existing.conversation.status !== 'CLOSED') {
+    const { assignConversation, reassignConversation } = await import('../whatsapp/whatsapp.assignment.service');
+
+    if (existing.conversation.status === 'UNASSIGNED') {
+      const result = await assignConversation(existing.conversation.id, assignToUserId);
+      if (!result.ok) {
+        if (result.reason === 'already_assigned') {
+          await reassignConversation(existing.conversation.id, assignToUserId, assignedById);
+        } else {
+          throw new Error('Failed to assign conversation');
+        }
+      }
+    } else if (existing.conversation.assignedAgentId !== assignToUserId) {
+      await reassignConversation(existing.conversation.id, assignToUserId, assignedById);
+    } else {
+      await prisma.$transaction([
+        prisma.candidateAssignment.deleteMany({ where: { candidateId } }),
+        prisma.candidateAssignment.create({
+          data: { candidateId, userId: assignToUserId, assignedById },
+        }),
+      ]);
+    }
+  } else {
+    await prisma.$transaction([
+      prisma.candidateAssignment.deleteMany({ where: { candidateId } }),
+      prisma.candidateAssignment.create({
+        data: { candidateId, userId: assignToUserId, assignedById },
+      }),
+    ]);
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      userId: assignedById,
+      action: 'ASSIGN',
+      entityType: 'Candidate',
+      entityId: candidateId,
+      metadata: { assignedTo: assignToUserId },
+    },
+  });
 
   return prisma.candidate.findUnique({ where: { id: candidateId }, select: candidateSelect });
 }
@@ -343,24 +379,7 @@ export async function respondToTransferRequest(
   });
 
   if (action === 'accept') {
-    // Look up the WhatsApp conversation for this candidate (if any).
-    // If it exists, use reassignConversation — it atomically:
-    //   • swaps Conversation.assignedAgentId  (so it appears in B's inbox / disappears from A's)
-    //   • swaps CandidateAssignment           (so it appears in B's candidates / disappears from A's)
-    //   • clears A's bell notifications for the conversation
-    //   • emits 'conversation:updated' + 'conversation:removed_from_inbox' for live UI sync
-    // If no conversation exists yet, fall back to a plain candidate-assignment swap.
-    const conversation = await prisma.conversation.findUnique({
-      where: { candidateId: request.candidateId },
-      select: { id: true },
-    });
-
-    if (conversation) {
-      const { reassignConversation } = await import('../whatsapp/whatsapp.assignment.service');
-      await reassignConversation(conversation.id, request.toAgentId, request.toAgentId);
-    } else {
-      await assignCandidate(request.candidateId, request.toAgentId, request.toAgentId);
-    }
+    await assignCandidate(request.candidateId, request.toAgentId, request.toAgentId);
   }
 
   return updated;

@@ -56,25 +56,22 @@ export async function assignConversation(
     },
   });
 
-  await prisma.conversationAssignmentLog.create({
-    data: {
-      conversationId,
-      action: 'ASSIGNED',
-      performedByUserId: agentId,
-      newAgentId: agentId,
-    },
-  });
-
-  // ── Also assign the candidate to the agent so Candidates page stays in sync ─
-  const candidateId = updated!.candidateId;
-  const existingCandidateAssignment = await prisma.candidateAssignment.findFirst({
-    where: { candidateId, userId: agentId },
-  });
-  if (!existingCandidateAssignment) {
-    await prisma.candidateAssignment.create({
-      data: { candidateId, userId: agentId, assignedById: agentId },
-    });
-  }
+  await prisma.$transaction([
+    prisma.conversationAssignmentLog.create({
+      data: {
+        conversationId,
+        action: 'ASSIGNED',
+        performedByUserId: agentId,
+        newAgentId: agentId,
+      },
+    }),
+    prisma.candidateAssignment.deleteMany({
+      where: { candidateId: updated!.candidateId },
+    }),
+    prisma.candidateAssignment.create({
+      data: { candidateId: updated!.candidateId, userId: agentId, assignedById: agentId },
+    }),
+  ]);
 
   result = {
     ok: true,
@@ -151,26 +148,16 @@ export async function reassignConversation(
       },
     });
 
-    // Remove old agent's CandidateAssignment (previous agent loses access)
-    if (previousAgentId && previousAgentId !== newAgentId) {
-      await tx.candidateAssignment.deleteMany({
-        where: { candidateId: updatedConv.candidateId, userId: previousAgentId },
-      });
-    }
-
-    // Ensure new agent has a CandidateAssignment record
-    const existingAssignment = await tx.candidateAssignment.findFirst({
-      where: { candidateId: updatedConv.candidateId, userId: newAgentId },
+    await tx.candidateAssignment.deleteMany({
+      where: { candidateId: updatedConv.candidateId },
     });
-    if (!existingAssignment) {
-      await tx.candidateAssignment.create({
-        data: {
-          candidateId: updatedConv.candidateId,
-          userId: newAgentId,
-          assignedById: performedByUserId,
-        },
-      });
-    }
+    await tx.candidateAssignment.create({
+      data: {
+        candidateId: updatedConv.candidateId,
+        userId: newAgentId,
+        assignedById: performedByUserId,
+      },
+    });
 
     return updatedConv;
   });
