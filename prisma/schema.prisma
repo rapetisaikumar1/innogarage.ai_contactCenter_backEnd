@@ -77,6 +77,12 @@ enum UserAvailability {
   OFFLINE
 }
 
+enum TransferRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -107,6 +113,13 @@ model User {
   previousAgentAssignments ConversationAssignmentLog[] @relation("PreviousAgentAssignments")
   newAgentAssignments      ConversationAssignmentLog[] @relation("NewAgentAssignments")
 
+  // Transfer requests
+  sentTransferRequests     CandidateTransferRequest[]  @relation("TransferFromAgent")
+  receivedTransferRequests CandidateTransferRequest[]  @relation("TransferToAgent")
+
+  // Agent notifications
+  agentNotifications AgentNotification[]
+
   @@map("users")
 }
 
@@ -134,6 +147,7 @@ model Candidate {
   statusHistory StatusHistory[]
   files         CandidateFile[]
   conversation  Conversation?
+  transferRequests CandidateTransferRequest[]
 
   @@index([status])
   @@index([phoneNumber])
@@ -341,3 +355,42 @@ model ConversationAssignmentLog {
   @@index([conversationId, createdAt])
   @@map("conversation_assignment_logs")
 }
+
+// ─── Transfer Request Models ───────────────────────────────────────────────────
+
+model CandidateTransferRequest {
+  id          String                @id @default(cuid())
+  candidateId String
+  fromAgentId String
+  toAgentId   String
+  status      TransferRequestStatus @default(PENDING)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  fromAgent User      @relation("TransferFromAgent", fields: [fromAgentId], references: [id])
+  toAgent   User      @relation("TransferToAgent",   fields: [toAgentId],   references: [id])
+
+  @@index([candidateId, status])
+  @@index([toAgentId, status])
+  @@map("candidate_transfer_requests")
+}
+
+model AgentNotification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@map("agent_notifications")
+}
+
+// Add Candidate back-relation for CandidateTransferRequest
+

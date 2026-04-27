@@ -12,6 +12,7 @@ import voiceRoutes from '../modules/voice/voice.routes';
 import dashboardRoutes from '../modules/dashboard/dashboard.routes';
 import settingsRoutes from '../modules/settings/settings.routes';
 import agentRoutes from '../modules/agents/agents.routes';
+import agentNotificationRoutes from '../modules/agent-notifications/agentNotifications.routes';
 
 const router = Router();
 
@@ -28,5 +29,6 @@ router.use('/voice', voiceRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/agents', agentRoutes);
+router.use('/agent-notifications', agentNotificationRoutes);
 
 export default router;

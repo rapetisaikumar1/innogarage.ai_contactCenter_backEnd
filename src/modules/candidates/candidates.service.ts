@@ -91,7 +91,22 @@ export async function listCandidates(query: ListCandidatesQuery, userId: string,
   };
 }
 
-export async function getCandidateById(id: string) {
+export async function getCandidateById(id: string, userId?: string, userRole?: string) {
+  // Agents may only access candidates assigned to them
+  if (userRole === 'AGENT' && userId) {
+    const owned = await prisma.candidate.findFirst({
+      where: {
+        id,
+        OR: [
+          { assignments: { some: { userId } } },
+          { conversation: { assignedAgentId: userId } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!owned) return null;
+  }
+
   const candidate = await prisma.candidate.findUnique({
     where: { id },
     select: {
@@ -255,4 +270,82 @@ export async function assignCandidate(candidateId: string, assignToUserId: strin
   ]);
 
   return prisma.candidate.findUnique({ where: { id: candidateId }, select: candidateSelect });
+}
+
+// ─── Transfer Request functions ───────────────────────────────────────────────
+
+const transferRequestSelect = {
+  id: true,
+  candidateId: true,
+  fromAgentId: true,
+  toAgentId: true,
+  status: true,
+  createdAt: true,
+  fromAgent: { select: { id: true, name: true } },
+  toAgent:   { select: { id: true, name: true } },
+};
+
+export async function getPendingTransferRequest(candidateId: string) {
+  return prisma.candidateTransferRequest.findFirst({
+    where: { candidateId, status: 'PENDING' },
+    select: transferRequestSelect,
+  });
+}
+
+export async function createTransferRequest(
+  candidateId: string,
+  fromAgentId: string,
+  toAgentId: string,
+) {
+  // Ensure no PENDING request already exists
+  const existing = await prisma.candidateTransferRequest.findFirst({
+    where: { candidateId, status: 'PENDING' },
+  });
+  if (existing) throw new Error('A transfer request is already pending for this candidate');
+
+  // Verify the requesting agent is actually assigned to this candidate
+  const assignment = await prisma.candidateAssignment.findFirst({
+    where: { candidateId, userId: fromAgentId },
+  });
+  if (!assignment) throw new Error('You are not assigned to this candidate');
+
+  const request = await prisma.candidateTransferRequest.create({
+    data: { candidateId, fromAgentId, toAgentId },
+    select: { ...transferRequestSelect, candidate: { select: { fullName: true } } },
+  });
+
+  return request;
+}
+
+export async function respondToTransferRequest(
+  requestId: string,
+  respondingAgentId: string,
+  action: 'accept' | 'reject',
+) {
+  const request = await prisma.candidateTransferRequest.findUnique({
+    where: { id: requestId },
+    select: {
+      ...transferRequestSelect,
+      candidate: { select: { fullName: true } },
+    },
+  });
+
+  if (!request) throw new Error('Transfer request not found');
+  if (request.status !== 'PENDING') throw new Error('Transfer request is no longer pending');
+  if (request.toAgentId !== respondingAgentId) throw new Error('You are not the target of this transfer request');
+
+  const newStatus = action === 'accept' ? 'ACCEPTED' : 'REJECTED';
+
+  const updated = await prisma.candidateTransferRequest.update({
+    where: { id: requestId },
+    data: { status: newStatus },
+    select: { ...transferRequestSelect, candidate: { select: { fullName: true } } },
+  });
+
+  if (action === 'accept') {
+    // Perform the actual reassignment
+    await assignCandidate(request.candidateId, request.toAgentId, request.toAgentId);
+  }
+
+  return updated;
 }

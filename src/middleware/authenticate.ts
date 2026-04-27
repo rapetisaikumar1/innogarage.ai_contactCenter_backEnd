@@ -6,6 +6,7 @@ import { sendError } from '../utils/response';
 export interface JwtPayload {
   userId: string;
   role: string;
+  name?: string;
 }
 
 export function authenticate(req: Request, res: Response, next: NextFunction): void {

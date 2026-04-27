@@ -6,6 +6,9 @@ import {
   handleUpdate,
   handleUpdateStatus,
   handleAssign,
+  handleGetPendingTransfer,
+  handleCreateTransferRequest,
+  handleRespondToTransferRequest,
 } from './candidates.controller';
 import { authenticate } from '../../middleware/authenticate';
 import { authorize } from '../../middleware/authorize';
@@ -38,5 +41,16 @@ router.patch('/:id/status', validate(updateStatusSchema), handleUpdateStatus);
 
 // POST /api/candidates/:id/assign – assign to agent (admin, manager only)
 router.post('/:id/assign', authorize('ADMIN', 'MANAGER'), handleAssign);
+
+// ── Transfer request routes ───────────────────────────────────────────────────
+
+// GET  /api/candidates/:id/transfer-request/pending – get pending transfer for a candidate
+router.get('/:id/transfer-request/pending', handleGetPendingTransfer);
+
+// POST /api/candidates/:id/transfer-request – agent creates a transfer request
+router.post('/:id/transfer-request', authorize('AGENT'), handleCreateTransferRequest);
+
+// PATCH /api/candidates/:id/transfer-request/:requestId/respond – agent accepts/rejects
+router.patch('/:id/transfer-request/:requestId/respond', authorize('AGENT'), handleRespondToTransferRequest);
 
 export default router;

@@ -1,10 +1,13 @@
 import { prisma } from '../../lib/prisma';
 import { DashboardStats } from './dashboard.types';
 
-export async function getDashboardStats(): Promise<DashboardStats> {
+export async function getDashboardStats(from?: Date, to?: Date): Promise<DashboardStats> {
   const now = new Date();
+  const rangeStart = from ?? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const rangeEnd   = to   ?? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  // Keep todayStart/todayEnd for follow-up queries that are always today-relative
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
   const [
     totalCandidates,
@@ -42,14 +45,14 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       },
     }),
 
-    // Calls logged today
+    // Calls logged in selected range
     prisma.call.count({
-      where: { createdAt: { gte: todayStart, lte: todayEnd } },
+      where: { createdAt: { gte: rangeStart, lte: rangeEnd } },
     }),
 
-    // WhatsApp messages today
+    // WhatsApp messages in selected range
     prisma.message.count({
-      where: { createdAt: { gte: todayStart, lte: todayEnd } },
+      where: { createdAt: { gte: rangeStart, lte: rangeEnd } },
     }),
 
     // 5 most recently added candidates
