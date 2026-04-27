@@ -343,8 +343,24 @@ export async function respondToTransferRequest(
   });
 
   if (action === 'accept') {
-    // Perform the actual reassignment
-    await assignCandidate(request.candidateId, request.toAgentId, request.toAgentId);
+    // Look up the WhatsApp conversation for this candidate (if any).
+    // If it exists, use reassignConversation — it atomically:
+    //   • swaps Conversation.assignedAgentId  (so it appears in B's inbox / disappears from A's)
+    //   • swaps CandidateAssignment           (so it appears in B's candidates / disappears from A's)
+    //   • clears A's bell notifications for the conversation
+    //   • emits 'conversation:updated' + 'conversation:removed_from_inbox' for live UI sync
+    // If no conversation exists yet, fall back to a plain candidate-assignment swap.
+    const conversation = await prisma.conversation.findUnique({
+      where: { candidateId: request.candidateId },
+      select: { id: true },
+    });
+
+    if (conversation) {
+      const { reassignConversation } = await import('../whatsapp/whatsapp.assignment.service');
+      await reassignConversation(conversation.id, request.toAgentId, request.toAgentId);
+    } else {
+      await assignCandidate(request.candidateId, request.toAgentId, request.toAgentId);
+    }
   }
 
   return updated;
