@@ -6,6 +6,8 @@ import { makeOutboundCall } from '../../lib/twilio';
 import { createAgentNotification } from '../../lib/agentNotifications';
 import { CallDTO, ListCallsInput, LiveVoiceSessionDTO, LogCallInput, UpdateCallInput } from './calls.types';
 
+const STALE_UNANSWERED_SESSION_MS = 2 * 60 * 1000;
+
 const CALL_INCLUDE = {
   candidate: { select: { id: true, fullName: true, phoneNumber: true } },
   loggedBy: { select: { id: true, name: true } },
@@ -435,6 +437,41 @@ async function finalizeVoiceSession(
   }
 
   return updated;
+}
+
+async function releaseStaleUnansweredVoiceSessionsForUser(userId: string): Promise<void> {
+  const staleBefore = new Date(Date.now() - STALE_UNANSWERED_SESSION_MS);
+  const staleSessions = await prisma.voiceSession.findMany({
+    where: {
+      assignedAgentId: userId,
+      status: { in: ['RINGING', 'CLAIMED'] },
+      answeredAt: null,
+      createdAt: { lt: staleBefore },
+    },
+    select: { id: true },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  for (const session of staleSessions) {
+    await finalizeVoiceSession(session.id, 'MISSED', 'stale_unanswered_session_cleanup', null);
+  }
+
+  if (staleSessions.length === 0) return;
+
+  const activeSessions = await prisma.voiceSession.count({
+    where: {
+      assignedAgentId: userId,
+      status: { in: ['CLAIMED', 'IN_CALL'] },
+    },
+  });
+
+  if (activeSessions === 0) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { voiceStatus: 'IDLE' },
+    });
+    emitToAll('voice:presence:updated', { userId, voiceStatus: 'IDLE' });
+  }
 }
 
 async function createOutboundVoiceSessionAndCall(params: {
@@ -931,6 +968,8 @@ export async function registerBrowserOutboundCall(params: {
     return null;
   }
 
+  await releaseStaleUnansweredVoiceSessionsForUser(params.userId);
+
   const user = await prisma.user.findUnique({
     where: { id: params.userId },
     select: { role: true, availability: true, voiceStatus: true, isActive: true },
@@ -962,6 +1001,7 @@ export async function initiateOutboundCall(params: {
   if (!candidate) throw new Error('Candidate not found');
 
   await assertOutboundCallAllowed(params.candidateId, params.userId, params.userRole);
+  await releaseStaleUnansweredVoiceSessionsForUser(params.userId);
 
   const user = await prisma.user.findUnique({
     where: { id: params.userId },
