@@ -94,6 +94,17 @@ enum TransferRequestStatus {
   REJECTED
 }
 
+enum TechnologyCategory {
+  MARKETING_AUTOMATION_ADOBE_STACK
+  DATA_ANALYTICS_CDP
+  CORE_ENGINEERING_DEVELOPMENT
+  AUTOMATION_TESTING_VALIDATION
+  INFRASTRUCTURE_OPERATIONS
+  ENTERPRISE_TOOLS_BUSINESS_SYSTEMS
+  SEMICONDUCTOR_HARDWARE
+  MISC_OTHER
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -168,6 +179,18 @@ model Candidate {
   @@index([phoneNumber])
   @@index([createdAt])
   @@map("candidates")
+}
+
+model AvailableTechnology {
+  id          String             @id @default(cuid())
+  name        String             @unique
+  category    TechnologyCategory
+  description String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([category])
+  @@map("available_technologies")
 }
 
 model CandidateAssignment {
