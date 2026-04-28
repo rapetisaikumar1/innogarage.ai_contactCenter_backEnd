@@ -163,10 +163,30 @@ function mapTwilioTerminalStatus(status: string): 'COMPLETED' | 'MISSED' | null 
     case 'no-answer':
     case 'failed':
     case 'canceled':
+    case 'cancelled':
+    case 'rejected':
       return 'MISSED';
     default:
       return null;
   }
+}
+
+function uniqueValues(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
+}
+
+function resolveFinalStatusForSession(
+  session: VoiceSessionRecord,
+  twilioStatus: string,
+): 'COMPLETED' | 'MISSED' | null {
+  const finalStatus = mapTwilioTerminalStatus(twilioStatus);
+  if (!finalStatus) return null;
+
+  if (finalStatus === 'COMPLETED' && session.status !== 'IN_CALL' && !session.answeredAt) {
+    return 'MISSED';
+  }
+
+  return finalStatus;
 }
 
 async function getEligibleInboundAgents(): Promise<Array<{ id: string; name: string }>> {
@@ -726,9 +746,8 @@ export async function claimIncomingVoiceSession(params: {
       },
       data: {
         assignedAgentId: params.agentId,
-        status: 'IN_CALL',
+        status: 'CLAIMED',
         claimedAt: new Date(),
-        answeredAt: new Date(),
         ...(params.bridgedCallSid ? { bridgedCallSid: params.bridgedCallSid } : {}),
       },
     });
@@ -763,12 +782,22 @@ export async function claimIncomingVoiceSession(params: {
   return claimed;
 }
 
-export async function rejectIncomingVoiceSession(sessionId: string): Promise<LiveVoiceSessionDTO | null> {
+export async function rejectReservedIncomingVoiceSession(
+  sessionId: string,
+  agentId: string,
+): Promise<LiveVoiceSessionDTO | null> {
   const session = await prisma.voiceSession.findUnique({
     where: { id: sessionId },
     include: VOICE_SESSION_INCLUDE,
   });
-  return session ? toLiveVoiceSessionDTO(session as unknown as VoiceSessionRecord) : null;
+
+  if (!session) return null;
+
+  if (session.status === 'RINGING' && session.reservedAgentId === agentId) {
+    return finalizeVoiceSession(sessionId, 'MISSED', 'rejected_by_reserved_agent', null);
+  }
+
+  return toLiveVoiceSessionDTO(session as unknown as VoiceSessionRecord);
 }
 
 export async function markIncomingVoiceSessionMissed(sessionId: string, reason: string): Promise<LiveVoiceSessionDTO | null> {
@@ -778,15 +807,22 @@ export async function markIncomingVoiceSessionMissed(sessionId: string, reason: 
 // ─── Voice: handle call status callback from Twilio ──────────────────────────
 export async function handleVoiceStatus(params: {
   callSid: string;
+  relatedCallSids?: string[];
   callStatus: string;
   callDuration?: string;
 }): Promise<void> {
   const normalizedStatus = params.callStatus.toLowerCase();
   const duration = params.callDuration ? parseInt(params.callDuration, 10) : null;
+  const callSids = uniqueValues([params.callSid, ...(params.relatedCallSids ?? [])]);
+
+  if (callSids.length === 0) {
+    logger.warn({ callStatus: params.callStatus }, 'Voice status callback missing call SID');
+    return;
+  }
 
   const session = await prisma.voiceSession.findFirst({
     where: {
-      OR: [{ rootCallSid: params.callSid }, { bridgedCallSid: params.callSid }],
+      OR: [{ rootCallSid: { in: callSids } }, { bridgedCallSid: { in: callSids } }],
     },
     include: VOICE_SESSION_INCLUDE,
   });
@@ -807,12 +843,14 @@ export async function handleVoiceStatus(params: {
           return current;
         }
 
+        const bridgedCallSid = callSids.find((sid) => sid !== current.rootCallSid);
+
         await tx.voiceSession.update({
           where: { id: session.id },
           data: {
             status: 'IN_CALL',
             answeredAt: current.answeredAt ?? new Date(),
-            ...(params.callSid !== current.rootCallSid && !current.bridgedCallSid ? { bridgedCallSid: params.callSid } : {}),
+            ...(bridgedCallSid && !current.bridgedCallSid ? { bridgedCallSid } : {}),
           },
         });
 
@@ -845,17 +883,17 @@ export async function handleVoiceStatus(params: {
       return;
     }
 
-    const finalStatus = mapTwilioTerminalStatus(normalizedStatus);
+    const finalStatus = resolveFinalStatusForSession(session as unknown as VoiceSessionRecord, normalizedStatus);
     if (finalStatus) {
       await finalizeVoiceSession(session.id, finalStatus, normalizedStatus, duration);
-      logger.info({ callSid: params.callSid, finalStatus, duration }, 'Voice session finalized from status callback');
+      logger.info({ callSids, finalStatus, duration }, 'Voice session finalized from status callback');
       return;
     }
   }
 
-  const legacyCall = await prisma.call.findFirst({ where: { providerCallId: params.callSid } });
+  const legacyCall = await prisma.call.findFirst({ where: { providerCallId: { in: callSids } } });
   if (!legacyCall) {
-    logger.warn({ callSid: params.callSid, callStatus: params.callStatus }, 'Voice status callback for unknown call SID');
+    logger.warn({ callSids, callStatus: params.callStatus }, 'Voice status callback for unknown call SID');
     return;
   }
 
@@ -878,7 +916,7 @@ export async function handleVoiceStatus(params: {
     },
   });
 
-  logger.info({ callSid: params.callSid, finalStatus, duration }, 'Legacy voice call status updated');
+  logger.info({ callSids, finalStatus, duration }, 'Legacy voice call status updated');
 }
 
 export async function registerBrowserOutboundCall(params: {

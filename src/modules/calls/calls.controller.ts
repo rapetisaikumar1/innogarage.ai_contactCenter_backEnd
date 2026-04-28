@@ -11,7 +11,7 @@ import {
   initiateOutboundCall,
   listLiveVoiceSessions,
   claimIncomingVoiceSession,
-  rejectIncomingVoiceSession,
+  rejectReservedIncomingVoiceSession,
   markIncomingVoiceSessionMissed,
 } from './calls.service';
 import { clearAgentNotificationsForCall } from '../agent-notifications/agentNotifications.service';
@@ -135,6 +135,10 @@ function isValidTwilioRequest(req: Request): boolean {
   return validateTwilioSignature(signature, getTwilioValidUrl(req), req.body);
 }
 
+function uniqueWebhookValues(values: Array<string | undefined>): string[] {
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
+}
+
 // POST /api/calls/voice/inbound — public, called by Twilio when someone calls our Voice number
 export async function handleVoiceInboundWebhook(req: Request, res: Response, next: NextFunction) {
   try {
@@ -194,12 +198,18 @@ export async function handleVoiceStatusWebhook(req: Request, res: Response, next
     }
 
     const payload = req.body as Record<string, string>;
-    const callSid = payload.DialCallSid || payload.CallSid;
+    const relatedCallSids = uniqueWebhookValues([
+      payload.DialCallSid,
+      payload.CallSid,
+      payload.ParentCallSid,
+    ]);
+    const callSid = payload.DialCallSid || payload.CallSid || payload.ParentCallSid;
     const callStatus = payload.DialCallStatus || payload.CallStatus;
     const callDuration = payload.DialCallDuration || payload.CallDuration;
     if (callSid && callStatus) {
       await handleVoiceStatus({
         callSid,
+        relatedCallSids,
         callStatus,
         callDuration,
       });
@@ -237,7 +247,7 @@ export async function handleClaimIncomingVoiceCall(req: Request, res: Response, 
 // POST /api/calls/voice/:sessionId/reject — local decline without claiming
 export async function handleRejectIncomingVoiceCall(req: Request, res: Response, next: NextFunction) {
   try {
-    const session = await rejectIncomingVoiceSession(req.params.sessionId);
+    const session = await rejectReservedIncomingVoiceSession(req.params.sessionId, req.user!.userId);
     sendSuccess(res, session ?? { ok: true, sessionId: req.params.sessionId });
   } catch (err) {
     next(err);
