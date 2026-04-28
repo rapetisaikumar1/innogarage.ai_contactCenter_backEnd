@@ -1,20 +1,52 @@
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
-import { emitToAll } from '../../lib/socket';
+import { emitToAll, emitToUsers } from '../../lib/socket';
 import { env } from '../../config/env';
 import { makeOutboundCall } from '../../lib/twilio';
+import { createAgentNotification } from '../../lib/agentNotifications';
 import { CallDTO, ListCallsInput, LiveVoiceSessionDTO, LogCallInput, UpdateCallInput } from './calls.types';
 
 const CALL_INCLUDE = {
   candidate: { select: { id: true, fullName: true, phoneNumber: true } },
   loggedBy: { select: { id: true, name: true } },
+  voiceSession: {
+    select: {
+      assignedAgentId: true,
+      reservedAgentId: true,
+      assignedAgent: { select: { id: true, name: true } },
+      reservedAgent: { select: { id: true, name: true } },
+    },
+  },
 } as const;
 
 const VOICE_SESSION_INCLUDE = {
   candidate: { select: { id: true, fullName: true, phoneNumber: true, whatsappNumber: true } },
+  reservedAgent: { select: { id: true, name: true } },
   assignedAgent: { select: { id: true, name: true } },
   call: { select: { id: true } },
 } as const;
+
+interface CallRecord {
+  id: string;
+  candidateId: string;
+  loggedById: string | null;
+  direction: 'INBOUND' | 'OUTBOUND';
+  phoneNumber: string;
+  duration: number | null;
+  status: 'COMPLETED' | 'MISSED' | 'IN_CALL';
+  providerCallId: string | null;
+  notes: string | null;
+  voiceSessionId: string | null;
+  createdAt: Date;
+  candidate: { id: string; fullName: string; phoneNumber: string };
+  loggedBy: { id: string; name: string } | null;
+  voiceSession: {
+    assignedAgentId: string | null;
+    reservedAgentId: string | null;
+    assignedAgent: { id: string; name: string } | null;
+    reservedAgent: { id: string; name: string } | null;
+  } | null;
+}
 
 interface VoiceSessionRecord {
   id: string;
@@ -26,6 +58,7 @@ interface VoiceSessionRecord {
   toNumber: string;
   isUnknownCaller: boolean;
   status: 'RINGING' | 'CLAIMED' | 'IN_CALL' | 'ENDED';
+  reservedAgentId: string | null;
   assignedAgentId: string | null;
   claimedAt: Date | null;
   answeredAt: Date | null;
@@ -33,8 +66,18 @@ interface VoiceSessionRecord {
   rawEndReason: string | null;
   createdAt: Date;
   candidate: { id: string; fullName: string; phoneNumber: string; whatsappNumber: string | null };
+  reservedAgent: { id: string; name: string } | null;
   assignedAgent: { id: string; name: string } | null;
   call: { id: string } | null;
+}
+
+interface CandidateOwner {
+  id: string;
+  name: string;
+  role: 'ADMIN' | 'AGENT' | 'MANAGER';
+  isActive: boolean;
+  availability: 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE';
+  voiceStatus: 'IDLE' | 'IN_CALL';
 }
 
 function normalizePhoneNumber(value: string): string {
@@ -42,6 +85,53 @@ function normalizePhoneNumber(value: string): string {
   if (!trimmed) return trimmed;
   const digits = trimmed.replace(/[\s()-]/g, '');
   return digits.startsWith('+') ? digits : `+${digits.replace(/^\+/, '')}`;
+}
+
+function toCallDTO(call: CallRecord, openMissedAlertCount = 0): CallDTO {
+  const owner = call.voiceSession?.assignedAgent ?? call.voiceSession?.reservedAgent ?? null;
+  return {
+    id: call.id,
+    candidateId: call.candidateId,
+    loggedById: call.loggedById,
+    direction: call.direction,
+    phoneNumber: call.phoneNumber,
+    duration: call.duration,
+    status: call.status,
+    providerCallId: call.providerCallId,
+    notes: call.notes,
+    voiceSessionId: call.voiceSessionId,
+    ownerAgentId: call.voiceSession?.assignedAgentId ?? call.voiceSession?.reservedAgentId ?? null,
+    ownerAgentName: owner?.name ?? null,
+    openMissedAlertCount,
+    createdAt: call.createdAt,
+    candidate: call.candidate,
+    loggedBy: call.loggedBy,
+  };
+}
+
+async function getOpenMissedAlertCounts(callIds: string[]): Promise<Map<string, number>> {
+  if (callIds.length === 0) return new Map();
+
+  const counts = await prisma.agentNotification.groupBy({
+    by: ['callId'],
+    where: {
+      callId: { in: callIds },
+      type: 'MISSED_CALL',
+      clearedAt: null,
+    },
+    _count: { _all: true },
+  });
+
+  return new Map(
+    counts
+      .filter((item): item is { callId: string; _count: { _all: number } } => item.callId !== null)
+      .map((item) => [item.callId, item._count._all]),
+  );
+}
+
+async function toCallDTOs(calls: CallRecord[]): Promise<CallDTO[]> {
+  const counts = await getOpenMissedAlertCounts(calls.map((call) => call.id));
+  return calls.map((call) => toCallDTO(call, counts.get(call.id) ?? 0));
 }
 
 function toLiveVoiceSessionDTO(session: VoiceSessionRecord): LiveVoiceSessionDTO {
@@ -53,6 +143,8 @@ function toLiveVoiceSessionDTO(session: VoiceSessionRecord): LiveVoiceSessionDTO
     phoneNumber: session.direction === 'INBOUND' ? session.fromNumber : session.toNumber,
     direction: session.direction,
     status: session.status,
+    reservedAgentId: session.reservedAgentId,
+    reservedAgentName: session.reservedAgent?.name ?? null,
     assignedAgentId: session.assignedAgentId,
     assignedAgentName: session.assignedAgent?.name ?? null,
     isUnknownCaller: session.isUnknownCaller,
@@ -88,6 +180,138 @@ async function getEligibleInboundAgents(): Promise<Array<{ id: string; name: str
     select: { id: true, name: true },
     orderBy: { name: 'asc' },
   });
+}
+
+function isEligibleVoiceOwner(owner: CandidateOwner | null): owner is CandidateOwner {
+  return Boolean(
+    owner &&
+      owner.role === 'AGENT' &&
+      owner.isActive &&
+      owner.availability === 'AVAILABLE' &&
+      owner.voiceStatus === 'IDLE',
+  );
+}
+
+async function resolveCandidateOwner(candidateId: string): Promise<CandidateOwner | null> {
+  const assignment = await prisma.candidateAssignment.findFirst({
+    where: { candidateId },
+    orderBy: { assignedAt: 'desc' },
+    select: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          isActive: true,
+          availability: true,
+          voiceStatus: true,
+        },
+      },
+    },
+  });
+
+  if (assignment?.user) return assignment.user;
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { candidateId },
+    select: {
+      assignedAgent: {
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          isActive: true,
+          availability: true,
+          voiceStatus: true,
+        },
+      },
+    },
+  });
+
+  return conversation?.assignedAgent ?? null;
+}
+
+async function getOwnerReservedRouting(candidateId: string): Promise<{
+  reservedAgentId: string | null;
+  eligibleAgents: Array<{ id: string; name: string }>;
+}> {
+  const owner = await resolveCandidateOwner(candidateId);
+  if (owner) {
+    return {
+      reservedAgentId: owner.id,
+      eligibleAgents: isEligibleVoiceOwner(owner) ? [{ id: owner.id, name: owner.name }] : [],
+    };
+  }
+
+  return {
+    reservedAgentId: null,
+    eligibleAgents: await getEligibleInboundAgents(),
+  };
+}
+
+async function getEligibleAgentsForExistingSession(session: VoiceSessionRecord): Promise<Array<{ id: string; name: string }>> {
+  if (session.status !== 'RINGING') return [];
+  if (!session.reservedAgentId) return getEligibleInboundAgents();
+
+  const agent = await prisma.user.findUnique({
+    where: { id: session.reservedAgentId },
+    select: { id: true, name: true, role: true, isActive: true, availability: true, voiceStatus: true },
+  });
+
+  return isEligibleVoiceOwner(agent) ? [{ id: agent.id, name: agent.name }] : [];
+}
+
+async function assertOutboundCallAllowed(candidateId: string, userId: string, userRole: string): Promise<void> {
+  if (userRole === 'ADMIN' || userRole === 'MANAGER') return;
+
+  const owner = await resolveCandidateOwner(candidateId);
+  if (!owner || owner.id !== userId) {
+    throw new Error('Not authorised to place calls for this candidate');
+  }
+}
+
+async function createMissedCallNotifications(session: LiveVoiceSessionDTO): Promise<void> {
+  if (!session.callId) return;
+  const callId = session.callId;
+
+  const ownerAgentId = session.assignedAgentId ?? session.reservedAgentId;
+  const admins = await prisma.user.findMany({
+    where: {
+      isActive: true,
+      role: { in: ['ADMIN', 'MANAGER'] },
+    },
+    select: { id: true },
+  });
+
+  const recipientIds = [...new Set([ownerAgentId, ...admins.map((user) => user.id)].filter((id): id is string => Boolean(id)))];
+  if (recipientIds.length === 0) return;
+
+  const existing = await prisma.agentNotification.findMany({
+    where: {
+      callId: session.callId,
+      type: 'MISSED_CALL',
+      userId: { in: recipientIds },
+    },
+    select: { userId: true },
+  });
+
+  const alreadyNotified = new Set(existing.map((notification) => notification.userId));
+  const title = 'Missed call';
+  const body = `${session.candidateName} could not be connected. Review the call log and follow up.`;
+  const metadata = {
+    callId: session.callId,
+    candidateId: session.candidateId,
+    candidateName: session.candidateName,
+    phoneNumber: session.phoneNumber,
+    direction: session.direction,
+    ownerAgentId,
+  };
+
+  await Promise.all(
+    recipientIds
+      .filter((recipientId) => !alreadyNotified.has(recipientId))
+      .map((recipientId) => createAgentNotification(recipientId, 'MISSED_CALL', title, body, metadata, { callId })),
+  );
 }
 
 async function findOrCreateCandidateForInboundCall(phoneNumber: string): Promise<{ candidateId: string; isUnknownCaller: boolean }> {
@@ -185,6 +409,9 @@ async function finalizeVoiceSession(
         voiceStatus: 'IDLE',
       });
     }
+    if (finalStatus === 'MISSED') {
+      await createMissedCallNotifications(updated);
+    }
   }
 
   return updated;
@@ -216,6 +443,7 @@ async function createOutboundVoiceSessionAndCall(params: {
         fromNumber: normalizePhoneNumber(env.TWILIO_VOICE_NUMBER),
         toNumber: normalizePhoneNumber(params.toNumber),
         status: 'CLAIMED',
+        reservedAgentId: params.userId,
         assignedAgentId: params.userId,
         claimedAt: new Date(),
       },
@@ -285,7 +513,7 @@ export async function logCall(input: LogCallInput, userId: string): Promise<Call
   });
 
   logger.info({ callId: call.id, candidateId: input.candidateId }, 'Call logged');
-  return call as unknown as CallDTO;
+  return toCallDTO(call as unknown as CallRecord);
 }
 
 // ─── Update call (add notes / fix duration after call ends) ──────────────────
@@ -312,7 +540,8 @@ export async function updateCall(
   });
 
   logger.info({ callId, userId }, 'Call updated');
-  return call as unknown as CallDTO;
+  const counts = await getOpenMissedAlertCounts([call.id]);
+  return toCallDTO(call as unknown as CallRecord, counts.get(call.id) ?? 0);
 }
 
 // ─── Delete a call log ────────────────────────────────────────────────────────
@@ -346,7 +575,7 @@ export async function listCallsByCandidate(
     }),
     prisma.call.count({ where: { candidateId } }),
   ]);
-  return { calls: calls as unknown as CallDTO[], total };
+  return { calls: await toCallDTOs(calls as unknown as CallRecord[]), total };
 }
 
 // ─── List all calls (dashboard) ───────────────────────────────────────────────
@@ -367,7 +596,7 @@ export async function listCalls(input: ListCallsInput): Promise<{ calls: CallDTO
     }),
     prisma.call.count({ where }),
   ]);
-  return { calls: calls as unknown as CallDTO[], total };
+  return { calls: await toCallDTOs(calls as unknown as CallRecord[]), total };
 }
 
 export async function listLiveVoiceSessions(): Promise<LiveVoiceSessionDTO[]> {
@@ -394,7 +623,7 @@ export async function handleVoiceInbound(params: {
     include: VOICE_SESSION_INCLUDE,
   });
   if (existingSession) {
-    const eligibleAgents = await getEligibleInboundAgents();
+    const eligibleAgents = await getEligibleAgentsForExistingSession(existingSession as unknown as VoiceSessionRecord);
     return {
       session: toLiveVoiceSessionDTO(existingSession as unknown as VoiceSessionRecord),
       eligibleAgentIds: eligibleAgents.map((agent) => agent.id),
@@ -402,6 +631,7 @@ export async function handleVoiceInbound(params: {
   }
 
   const { candidateId, isUnknownCaller } = await findOrCreateCandidateForInboundCall(phoneNumber);
+  const routing = await getOwnerReservedRouting(candidateId);
 
   const session = await prisma.$transaction(async (tx) => {
     const createdSession = await tx.voiceSession.create({
@@ -413,6 +643,7 @@ export async function handleVoiceInbound(params: {
         toNumber: twilioNumber,
         isUnknownCaller,
         status: 'RINGING',
+        reservedAgentId: routing.reservedAgentId,
       },
     });
 
@@ -440,11 +671,17 @@ export async function handleVoiceInbound(params: {
     throw new Error('Failed to create inbound voice session');
   }
 
-  emitToAll('voice:incoming:new', session);
+  if (routing.eligibleAgents.length > 0) {
+    emitToUsers(routing.eligibleAgents.map((agent) => agent.id), 'voice:incoming:new', session);
+  }
 
-  const eligibleAgents = await getEligibleInboundAgents();
-  logger.info({ callSid: params.callSid, candidateId, eligibleAgents: eligibleAgents.length }, 'Inbound voice call prepared');
-  return { session, eligibleAgentIds: eligibleAgents.map((agent) => agent.id) };
+  logger.info({
+    callSid: params.callSid,
+    candidateId,
+    reservedAgentId: routing.reservedAgentId,
+    eligibleAgents: routing.eligibleAgents.length,
+  }, 'Inbound voice call prepared');
+  return { session, eligibleAgentIds: routing.eligibleAgents.map((agent) => agent.id) };
 }
 
 export async function claimIncomingVoiceSession(params: {
@@ -453,6 +690,18 @@ export async function claimIncomingVoiceSession(params: {
   bridgedCallSid?: string;
 }): Promise<LiveVoiceSessionDTO> {
   const claimed = await prisma.$transaction(async (tx) => {
+    const current = await tx.voiceSession.findUnique({
+      where: { id: params.sessionId },
+      select: { reservedAgentId: true },
+    });
+
+    if (!current) {
+      throw new Error('Voice session not found');
+    }
+    if (current.reservedAgentId && current.reservedAgentId !== params.agentId) {
+      throw new Error('Not authorised to claim this call');
+    }
+
     const agentUpdate = await tx.user.updateMany({
       where: {
         id: params.agentId,
@@ -473,6 +722,7 @@ export async function claimIncomingVoiceSession(params: {
         id: params.sessionId,
         status: 'RINGING',
         assignedAgentId: null,
+        OR: [{ reservedAgentId: null }, { reservedAgentId: params.agentId }],
       },
       data: {
         assignedAgentId: params.agentId,
@@ -643,6 +893,15 @@ export async function registerBrowserOutboundCall(params: {
     return null;
   }
 
+  const user = await prisma.user.findUnique({
+    where: { id: params.userId },
+    select: { role: true, availability: true, voiceStatus: true, isActive: true },
+  });
+  if (!user || !user.isActive || user.availability !== 'AVAILABLE' || user.voiceStatus !== 'IDLE') {
+    throw new Error('Agent is not available to place a new call');
+  }
+  await assertOutboundCallAllowed(candidate.id, params.userId, user.role);
+
   const session = await createOutboundVoiceSessionAndCall({
     candidateId: candidate.id,
     userId: params.userId,
@@ -659,15 +918,18 @@ export async function initiateOutboundCall(params: {
   candidateId: string;
   statusCallbackUrl: string;
   userId: string;
+  userRole: string;
 }): Promise<{ callSid: string }> {
   const candidate = await prisma.candidate.findUnique({ where: { id: params.candidateId } });
   if (!candidate) throw new Error('Candidate not found');
 
+  await assertOutboundCallAllowed(params.candidateId, params.userId, params.userRole);
+
   const user = await prisma.user.findUnique({
     where: { id: params.userId },
-    select: { availability: true, voiceStatus: true },
+    select: { availability: true, voiceStatus: true, isActive: true },
   });
-  if (!user || user.availability !== 'AVAILABLE' || user.voiceStatus !== 'IDLE') {
+  if (!user || !user.isActive || user.availability !== 'AVAILABLE' || user.voiceStatus !== 'IDLE') {
     throw new Error('Agent is not available to place a new call');
   }
 

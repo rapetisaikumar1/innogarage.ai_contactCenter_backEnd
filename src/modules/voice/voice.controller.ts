@@ -45,6 +45,7 @@ export async function handleOutboundTwiml(req: Request, res: Response, next: Nex
     }
 
     const To = (req.body.To as string) || '';
+    const From = (req.body.From as string) || '';
     const candidateId = (req.body.candidateId as string) || '';
     const userId = (req.body.userId as string) || '';
     const callSid = (req.body.CallSid as string) || '';
@@ -54,19 +55,28 @@ export async function handleOutboundTwiml(req: Request, res: Response, next: Nex
       return res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Missing destination number.</Say></Response>');
     }
 
-    // Best-effort: register the browser outbound call. Do not fail the TwiML on DB errors.
+    if (!candidateId || !userId || !callSid) {
+      res.set('Content-Type', 'text/xml');
+      return res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Missing call context.</Say></Response>');
+    }
+
+    if (From.startsWith('client:') && From.slice('client:'.length) !== userId) {
+      res.set('Content-Type', 'text/xml');
+      return res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>This call is not allowed for your account.</Say></Response>');
+    }
+
     try {
-      if (candidateId && userId && callSid) {
-        await registerBrowserOutboundCall({
-          candidateId,
-          userId,
-          callSid,
-          toNumber: To,
-        });
-        logger.info({ callSid, candidateId, userId, to: To }, 'Browser outbound call registered');
-      }
+      await registerBrowserOutboundCall({
+        candidateId,
+        userId,
+        callSid,
+        toNumber: To,
+      });
+      logger.info({ callSid, candidateId, userId, to: To }, 'Browser outbound call registered');
     } catch (dbErr) {
       logger.error({ err: dbErr, callSid }, 'Failed to register browser outbound call');
+      res.set('Content-Type', 'text/xml');
+      return res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>This call is not allowed for your account.</Say></Response>');
     }
 
     res.set('Content-Type', 'text/xml');

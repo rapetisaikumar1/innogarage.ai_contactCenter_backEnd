@@ -14,6 +14,7 @@ import {
   rejectIncomingVoiceSession,
   markIncomingVoiceSessionMissed,
 } from './calls.service';
+import { clearAgentNotificationsForCall } from '../agent-notifications/agentNotifications.service';
 import { logCallSchema, updateCallSchema, listCallsSchema } from './calls.types';
 import { validateTwilioSignature, inboundCallTwiml, dialClientsTwiml } from '../../lib/twilio';
 import { env } from '../../config/env';
@@ -226,6 +227,9 @@ export async function handleClaimIncomingVoiceCall(req: Request, res: Response, 
     if (err instanceof Error && err.message.includes('already been taken')) {
       return sendError(res, 409, err.message);
     }
+    if (err instanceof Error && err.message.startsWith('Not authorised')) {
+      return sendError(res, 403, err.message);
+    }
     next(err);
   }
 }
@@ -254,6 +258,7 @@ export async function handleInitiateCall(req: Request, res: Response, next: Next
       candidateId,
       statusCallbackUrl,
       userId: req.user!.userId,
+      userRole: req.user!.role,
     });
 
     sendSuccess(res, result, 201);
@@ -264,8 +269,30 @@ export async function handleInitiateCall(req: Request, res: Response, next: Next
     if (err instanceof Error && err.message.includes('no phone number')) {
       return sendError(res, 400, err.message);
     }
+    if (err instanceof Error && err.message.startsWith('Not authorised')) {
+      return sendError(res, 403, err.message);
+    }
+    if (err instanceof Error && err.message.includes('not available')) {
+      return sendError(res, 409, err.message);
+    }
     if (err instanceof Error && err.message.includes('TWILIO_VOICE_NUMBER')) {
       return sendError(res, 503, 'Voice calling is not configured on this server');
+    }
+    next(err);
+  }
+}
+
+// POST /api/calls/:callId/alerts/clear — remove call-scoped missed-call alerts
+export async function handleClearCallAlerts(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await clearAgentNotificationsForCall(req.params.callId, req.user!.userId, req.user!.role);
+    sendSuccess(res, result);
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message === 'Call not found') {
+      return sendError(res, 404, err.message);
+    }
+    if (err instanceof Error && err.message.startsWith('Not authorised')) {
+      return sendError(res, 403, err.message);
     }
     next(err);
   }

@@ -118,6 +118,7 @@ model User {
   uploadedFiles      CandidateFile[]
   loggedCalls        Call[]
   claimedVoiceSessions VoiceSession[] @relation("ClaimedVoiceSessions")
+  reservedVoiceSessions VoiceSession[] @relation("ReservedVoiceSessions")
 
   // WhatsApp conversation assignment
   assignedConversations    Conversation[]              @relation("AssignedConversations")
@@ -238,6 +239,7 @@ model VoiceSession {
   toNumber        String
   isUnknownCaller Boolean            @default(false)
   status          VoiceSessionStatus @default(RINGING)
+  reservedAgentId String?
   assignedAgentId String?
   claimedAt       DateTime?
   answeredAt      DateTime?
@@ -248,9 +250,11 @@ model VoiceSession {
 
   candidate      Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   call           Call?
+  reservedAgent  User?     @relation("ReservedVoiceSessions", fields: [reservedAgentId], references: [id])
   assignedAgent  User?     @relation("ClaimedVoiceSessions", fields: [assignedAgentId], references: [id])
 
   @@index([status, assignedAgentId])
+  @@index([reservedAgentId, status])
   @@index([candidateId, createdAt])
   @@index([assignedAgentId, status])
   @@map("voice_sessions")
@@ -423,16 +427,19 @@ model CandidateTransferRequest {
 model AgentNotification {
   id        String   @id @default(cuid())
   userId    String
+  callId    String?
   type      String
   title     String
   body      String
   isRead    Boolean  @default(false)
   metadata  Json?
   createdAt DateTime @default(now())
+  clearedAt DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, isRead, createdAt])
+  @@index([userId, isRead, clearedAt, createdAt])
+  @@index([callId, clearedAt])
   @@map("agent_notifications")
 }
 

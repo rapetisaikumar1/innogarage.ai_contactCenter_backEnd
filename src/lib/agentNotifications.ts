@@ -4,6 +4,7 @@ import { emitToUser } from './socket';
 export interface AgentNotificationPayload {
   id: string;
   userId: string;
+  callId: string | null;
   type: string;
   title: string;
   body: string;
@@ -21,15 +22,17 @@ export async function createAgentNotification(
   title: string,
   body: string,
   metadata?: Record<string, unknown>,
+  options?: { callId?: string },
 ): Promise<AgentNotificationPayload> {
   const notification = await prisma.agentNotification.create({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    data: { userId, type, title, body, metadata: (metadata as any) ?? undefined },
+    data: { userId, callId: options?.callId, type, title, body, metadata: (metadata as any) ?? undefined },
   });
 
   const payload: AgentNotificationPayload = {
     id: notification.id,
     userId: notification.userId,
+    callId: notification.callId,
     type: notification.type,
     title: notification.title,
     body: notification.body,

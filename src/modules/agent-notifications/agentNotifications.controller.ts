@@ -3,6 +3,7 @@ import {
   listAgentNotifications,
   markAgentNotificationRead,
   markAllAgentNotificationsRead,
+  clearAgentNotificationsForCall,
 } from './agentNotifications.service';
 import { sendSuccess, sendError } from '../../utils/response';
 
@@ -32,6 +33,24 @@ export async function handleMarkAllRead(req: Request, res: Response): Promise<vo
     sendSuccess(res, { ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to mark all notifications read';
+    sendError(res, 500, message);
+  }
+}
+
+export async function handleClearCallAlerts(req: Request, res: Response): Promise<void> {
+  try {
+    const result = await clearAgentNotificationsForCall(req.params.callId, req.user!.userId, req.user!.role);
+    sendSuccess(res, result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to clear call alerts';
+    if (message === 'Call not found') {
+      sendError(res, 404, message);
+      return;
+    }
+    if (message.startsWith('Not authorised')) {
+      sendError(res, 403, message);
+      return;
+    }
     sendError(res, 500, message);
   }
 }

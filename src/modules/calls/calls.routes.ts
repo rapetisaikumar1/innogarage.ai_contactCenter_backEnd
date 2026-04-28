@@ -11,6 +11,7 @@ import {
   handleListLiveVoiceSessions,
   handleClaimIncomingVoiceCall,
   handleRejectIncomingVoiceCall,
+  handleClearCallAlerts,
 } from './calls.controller';
 
 const router = Router();
@@ -39,6 +40,9 @@ router.post('/voice/:sessionId/claim', handleClaimIncomingVoiceCall);
 
 // POST /api/calls/voice/:sessionId/reject — decline locally
 router.post('/voice/:sessionId/reject', handleRejectIncomingVoiceCall);
+
+// POST /api/calls/:callId/alerts/clear — clear missed-call alerts for this call
+router.post('/:callId/alerts/clear', handleClearCallAlerts);
 
 // PATCH /api/calls/:callId — update a call
 router.patch('/:callId', handleUpdate);

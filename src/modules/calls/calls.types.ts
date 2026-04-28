@@ -37,6 +37,10 @@ export interface CallDTO {
   status: 'COMPLETED' | 'MISSED' | 'IN_CALL';
   providerCallId: string | null;
   notes: string | null;
+  voiceSessionId: string | null;
+  ownerAgentId: string | null;
+  ownerAgentName: string | null;
+  openMissedAlertCount: number;
   createdAt: Date;
   candidate: { id: string; fullName: string; phoneNumber: string };
   loggedBy: { id: string; name: string } | null;
@@ -50,6 +54,8 @@ export interface LiveVoiceSessionDTO {
   phoneNumber: string;
   direction: 'INBOUND' | 'OUTBOUND';
   status: 'RINGING' | 'CLAIMED' | 'IN_CALL' | 'ENDED';
+  reservedAgentId: string | null;
+  reservedAgentName: string | null;
   assignedAgentId: string | null;
   assignedAgentName: string | null;
   isUnknownCaller: boolean;
