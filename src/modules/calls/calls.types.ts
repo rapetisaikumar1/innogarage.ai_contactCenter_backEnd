@@ -27,6 +27,29 @@ export type LogCallInput = z.infer<typeof logCallSchema>;
 export type UpdateCallInput = z.infer<typeof updateCallSchema>;
 export type ListCallsInput = z.infer<typeof listCallsSchema>;
 
+export interface CallEventDTO {
+  type: 'SYSTEM' | 'ROUTING' | 'AGENT' | 'RESULT';
+  title: string;
+  description: string;
+  occurredAt: Date;
+}
+
+export interface CallVoiceDetailsDTO {
+  sessionStatus: 'RINGING' | 'CLAIMED' | 'IN_CALL' | 'ENDED';
+  rootCallSid: string;
+  bridgedCallSid: string | null;
+  rawEndReason: string | null;
+  isUnknownCaller: boolean;
+  reservedAgentId: string | null;
+  reservedAgentName: string | null;
+  assignedAgentId: string | null;
+  assignedAgentName: string | null;
+  createdAt: Date;
+  claimedAt: Date | null;
+  answeredAt: Date | null;
+  endedAt: Date | null;
+}
+
 export interface CallDTO {
   id: string;
   candidateId: string;
@@ -41,6 +64,8 @@ export interface CallDTO {
   ownerAgentId: string | null;
   ownerAgentName: string | null;
   openMissedAlertCount: number;
+  events: CallEventDTO[];
+  voiceDetails: CallVoiceDetailsDTO | null;
   createdAt: Date;
   candidate: { id: string; fullName: string; phoneNumber: string };
   loggedBy: { id: string; name: string } | null;

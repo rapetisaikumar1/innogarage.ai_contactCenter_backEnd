@@ -4,7 +4,15 @@ import { emitToAll, emitToUsers } from '../../lib/socket';
 import { env } from '../../config/env';
 import { makeOutboundCall } from '../../lib/twilio';
 import { createAgentNotification } from '../../lib/agentNotifications';
-import { CallDTO, ListCallsInput, LiveVoiceSessionDTO, LogCallInput, UpdateCallInput } from './calls.types';
+import {
+  CallDTO,
+  CallEventDTO,
+  CallVoiceDetailsDTO,
+  ListCallsInput,
+  LiveVoiceSessionDTO,
+  LogCallInput,
+  UpdateCallInput,
+} from './calls.types';
 
 const STALE_UNANSWERED_SESSION_MS = 2 * 60 * 1000;
 const VOICE_TRANSACTION_OPTIONS = { maxWait: 5_000, timeout: 15_000 } as const;
@@ -14,6 +22,16 @@ const CALL_INCLUDE = {
   loggedBy: { select: { id: true, name: true } },
   voiceSession: {
     select: {
+      id: true,
+      status: true,
+      rootCallSid: true,
+      bridgedCallSid: true,
+      isUnknownCaller: true,
+      claimedAt: true,
+      answeredAt: true,
+      endedAt: true,
+      rawEndReason: true,
+      createdAt: true,
       assignedAgentId: true,
       reservedAgentId: true,
       assignedAgent: { select: { id: true, name: true } },
@@ -44,6 +62,16 @@ interface CallRecord {
   candidate: { id: string; fullName: string; phoneNumber: string };
   loggedBy: { id: string; name: string } | null;
   voiceSession: {
+    id: string;
+    status: 'RINGING' | 'CLAIMED' | 'IN_CALL' | 'ENDED';
+    rootCallSid: string;
+    bridgedCallSid: string | null;
+    isUnknownCaller: boolean;
+    claimedAt: Date | null;
+    answeredAt: Date | null;
+    endedAt: Date | null;
+    rawEndReason: string | null;
+    createdAt: Date;
     assignedAgentId: string | null;
     reservedAgentId: string | null;
     assignedAgent: { id: string; name: string } | null;
@@ -90,6 +118,124 @@ function normalizePhoneNumber(value: string): string {
   return digits.startsWith('+') ? digits : `+${digits.replace(/^\+/, '')}`;
 }
 
+function describeFinalCallOutcome(call: CallRecord): string {
+  if (!call.voiceSession?.rawEndReason) {
+    return call.status === 'COMPLETED'
+      ? 'The call finished successfully.'
+      : 'The call ended before a live conversation was completed.';
+  }
+
+  switch (call.voiceSession.rawEndReason) {
+    case 'rejected_by_reserved_agent':
+      return `${call.voiceSession.reservedAgent?.name ?? 'The reserved agent'} rejected the incoming call.`;
+    case 'no_available_agents':
+      return 'No eligible agents were available for this call.';
+    case 'stale_unanswered_session_cleanup':
+      return 'The call was closed automatically after staying unanswered for too long.';
+    case 'canceled':
+    case 'cancelled':
+      return 'The call was canceled before it was answered.';
+    case 'busy':
+      return 'The destination was busy when the call was attempted.';
+    case 'no-answer':
+      return 'The call rang but nobody answered.';
+    case 'failed':
+      return 'The provider reported a failed call attempt.';
+    case 'completed':
+      return call.status === 'COMPLETED'
+        ? 'The call was answered and completed.'
+        : 'The provider marked the call completed, but it ended before a live connection was established.';
+    default:
+      return `Ended with reason: ${call.voiceSession.rawEndReason}.`;
+  }
+}
+
+function buildCallEvents(call: CallRecord): CallEventDTO[] {
+  if (!call.voiceSession) {
+    return [{
+      type: 'SYSTEM',
+      title: 'Call log created',
+      description: `${call.loggedBy?.name ?? 'System'} saved this call in the app.`,
+      occurredAt: call.createdAt,
+    }];
+  }
+
+  const session = call.voiceSession;
+  const events: CallEventDTO[] = [{
+    type: 'SYSTEM',
+    title: call.direction === 'INBOUND' ? 'Inbound call received' : 'Outbound call started',
+    description: session.isUnknownCaller
+      ? 'The call created or matched an unknown-caller record before routing.'
+      : 'The voice session was opened for the candidate and added to the call log.',
+    occurredAt: session.createdAt,
+  }];
+
+  events.push({
+    type: 'ROUTING',
+    title: session.reservedAgent
+      ? 'Reserved for owner agent'
+      : call.direction === 'INBOUND'
+        ? 'Opened to available agents'
+        : 'Waiting for assigned agent',
+    description: session.reservedAgent
+      ? `${session.reservedAgent.name} was reserved for this candidate call.`
+      : call.direction === 'INBOUND'
+        ? 'The call was available to eligible agents inside the app.'
+        : `${session.assignedAgent?.name ?? call.loggedBy?.name ?? 'An agent'} initiated the outbound session.`,
+    occurredAt: session.createdAt,
+  });
+
+  if (session.claimedAt && session.assignedAgent) {
+    events.push({
+      type: 'AGENT',
+      title: 'Claimed in app',
+      description: `${session.assignedAgent.name} claimed the live call in the app.`,
+      occurredAt: session.claimedAt,
+    });
+  }
+
+  if (session.answeredAt) {
+    events.push({
+      type: 'AGENT',
+      title: 'Call connected',
+      description: `${session.assignedAgent?.name ?? 'The assigned agent'} connected with the caller.`,
+      occurredAt: session.answeredAt,
+    });
+  }
+
+  const finalTimestamp = session.endedAt ?? call.createdAt;
+  events.push({
+    type: 'RESULT',
+    title: call.status === 'COMPLETED' ? 'Call completed' : call.status === 'MISSED' ? 'Call missed' : 'Call still active',
+    description: call.status === 'IN_CALL'
+      ? 'The call is still active in the app right now.'
+      : describeFinalCallOutcome(call),
+    occurredAt: finalTimestamp,
+  });
+
+  return events.sort((left, right) => left.occurredAt.getTime() - right.occurredAt.getTime());
+}
+
+function buildCallVoiceDetails(call: CallRecord): CallVoiceDetailsDTO | null {
+  if (!call.voiceSession) return null;
+
+  return {
+    sessionStatus: call.voiceSession.status,
+    rootCallSid: call.voiceSession.rootCallSid,
+    bridgedCallSid: call.voiceSession.bridgedCallSid,
+    rawEndReason: call.voiceSession.rawEndReason,
+    isUnknownCaller: call.voiceSession.isUnknownCaller,
+    reservedAgentId: call.voiceSession.reservedAgentId,
+    reservedAgentName: call.voiceSession.reservedAgent?.name ?? null,
+    assignedAgentId: call.voiceSession.assignedAgentId,
+    assignedAgentName: call.voiceSession.assignedAgent?.name ?? null,
+    createdAt: call.voiceSession.createdAt,
+    claimedAt: call.voiceSession.claimedAt,
+    answeredAt: call.voiceSession.answeredAt,
+    endedAt: call.voiceSession.endedAt,
+  };
+}
+
 function toCallDTO(call: CallRecord, openMissedAlertCount = 0): CallDTO {
   const owner = call.voiceSession?.assignedAgent ?? call.voiceSession?.reservedAgent ?? null;
   return {
@@ -106,6 +252,8 @@ function toCallDTO(call: CallRecord, openMissedAlertCount = 0): CallDTO {
     ownerAgentId: call.voiceSession?.assignedAgentId ?? call.voiceSession?.reservedAgentId ?? null,
     ownerAgentName: owner?.name ?? null,
     openMissedAlertCount,
+    events: buildCallEvents(call),
+    voiceDetails: buildCallVoiceDetails(call),
     createdAt: call.createdAt,
     candidate: call.candidate,
     loggedBy: call.loggedBy,
