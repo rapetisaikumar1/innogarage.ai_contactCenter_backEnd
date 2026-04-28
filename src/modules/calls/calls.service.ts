@@ -7,6 +7,7 @@ import { createAgentNotification } from '../../lib/agentNotifications';
 import { CallDTO, ListCallsInput, LiveVoiceSessionDTO, LogCallInput, UpdateCallInput } from './calls.types';
 
 const STALE_UNANSWERED_SESSION_MS = 2 * 60 * 1000;
+const VOICE_TRANSACTION_OPTIONS = { maxWait: 5_000, timeout: 15_000 } as const;
 
 const CALL_INCLUDE = {
   candidate: { select: { id: true, fullName: true, phoneNumber: true } },
@@ -421,7 +422,7 @@ async function finalizeVoiceSession(
     });
 
     return refreshed ? toLiveVoiceSessionDTO(refreshed as unknown as VoiceSessionRecord) : null;
-  });
+  }, VOICE_TRANSACTION_OPTIONS);
 
   if (updated) {
     emitToAll('voice:incoming:ended', { ...updated, finalStatus });
@@ -524,7 +525,7 @@ async function createOutboundVoiceSessionAndCall(params: {
     });
 
     return refreshed ? toLiveVoiceSessionDTO(refreshed as unknown as VoiceSessionRecord) : null;
-  });
+  }, VOICE_TRANSACTION_OPTIONS);
 
   if (created) {
     emitToAll('voice:presence:updated', {
@@ -722,7 +723,7 @@ export async function handleVoiceInbound(params: {
     });
 
     return refreshed ? toLiveVoiceSessionDTO(refreshed as unknown as VoiceSessionRecord) : null;
-  });
+  }, VOICE_TRANSACTION_OPTIONS);
 
   if (!session) {
     throw new Error('Failed to create inbound voice session');
@@ -811,7 +812,7 @@ export async function claimIncomingVoiceSession(params: {
     }
 
     return toLiveVoiceSessionDTO(refreshed as unknown as VoiceSessionRecord);
-  });
+  }, VOICE_TRANSACTION_OPTIONS);
 
   emitToAll('voice:incoming:claimed', claimed);
   emitToAll('voice:presence:updated', { userId: claimed.assignedAgentId, voiceStatus: 'IN_CALL' });
@@ -909,7 +910,7 @@ export async function handleVoiceStatus(params: {
           where: { id: session.id },
           include: VOICE_SESSION_INCLUDE,
         });
-      });
+      }, VOICE_TRANSACTION_OPTIONS);
 
       if (updated?.assignedAgentId) {
         emitToAll('voice:presence:updated', {
