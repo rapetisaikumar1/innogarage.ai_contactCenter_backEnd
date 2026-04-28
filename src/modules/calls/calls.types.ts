@@ -5,13 +5,13 @@ export const logCallSchema = z.object({
   direction: z.enum(['INBOUND', 'OUTBOUND'], { required_error: 'Direction is required' }),
   phoneNumber: z.string().min(1, 'Phone number is required'),
   duration: z.coerce.number().int().min(0).optional(),
-  status: z.enum(['COMPLETED', 'MISSED', 'FAILED', 'IN_PROGRESS']),
+  status: z.enum(['COMPLETED', 'MISSED', 'IN_CALL']),
   notes: z.string().max(2000).optional(),
 });
 
 export const updateCallSchema = z.object({
   duration: z.coerce.number().int().min(0).optional(),
-  status: z.enum(['COMPLETED', 'MISSED', 'FAILED', 'IN_PROGRESS']).optional(),
+  status: z.enum(['COMPLETED', 'MISSED', 'IN_CALL']).optional(),
   notes: z.string().max(2000).optional(),
 });
 
@@ -19,7 +19,7 @@ export const listCallsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   direction: z.enum(['INBOUND', 'OUTBOUND']).optional(),
-  status: z.enum(['COMPLETED', 'MISSED', 'FAILED', 'IN_PROGRESS']).optional(),
+  status: z.enum(['COMPLETED', 'MISSED', 'IN_CALL']).optional(),
   candidateId: z.string().optional(),
 });
 
@@ -30,16 +30,33 @@ export type ListCallsInput = z.infer<typeof listCallsSchema>;
 export interface CallDTO {
   id: string;
   candidateId: string;
-  loggedById: string;
+  loggedById: string | null;
   direction: 'INBOUND' | 'OUTBOUND';
   phoneNumber: string;
   duration: number | null;
-  status: 'COMPLETED' | 'MISSED' | 'FAILED' | 'IN_PROGRESS';
+  status: 'COMPLETED' | 'MISSED' | 'IN_CALL';
   providerCallId: string | null;
   notes: string | null;
   createdAt: Date;
   candidate: { id: string; fullName: string; phoneNumber: string };
-  loggedBy: { id: string; name: string };
+  loggedBy: { id: string; name: string } | null;
+}
+
+export interface LiveVoiceSessionDTO {
+  id: string;
+  callId: string | null;
+  candidateId: string;
+  candidateName: string;
+  phoneNumber: string;
+  direction: 'INBOUND' | 'OUTBOUND';
+  status: 'RINGING' | 'CLAIMED' | 'IN_CALL' | 'ENDED';
+  assignedAgentId: string | null;
+  assignedAgentName: string | null;
+  isUnknownCaller: boolean;
+  createdAt: Date;
+  claimedAt: Date | null;
+  answeredAt: Date | null;
+  endedAt: Date | null;
 }
 
 /** Format seconds into "Xm Ys" or "Xs" */

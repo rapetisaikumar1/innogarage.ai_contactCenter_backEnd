@@ -9,11 +9,14 @@ import {
   handleVoiceInbound,
   handleVoiceStatus,
   initiateOutboundCall,
+  listLiveVoiceSessions,
+  claimIncomingVoiceSession,
+  rejectIncomingVoiceSession,
+  markIncomingVoiceSessionMissed,
 } from './calls.service';
 import { logCallSchema, updateCallSchema, listCallsSchema } from './calls.types';
-import { validateTwilioSignature, inboundCallTwiml, dialClientTwiml } from '../../lib/twilio';
+import { validateTwilioSignature, inboundCallTwiml, dialClientsTwiml } from '../../lib/twilio';
 import { env } from '../../config/env';
-import { prisma } from '../../lib/prisma';
 
 // POST /api/calls  — log a new call
 export async function handleLog(req: Request, res: Response, next: NextFunction) {
@@ -107,6 +110,16 @@ export async function handleList(req: Request, res: Response, next: NextFunction
   }
 }
 
+// GET /api/calls/voice/live — live inbound/outbound voice sessions
+export async function handleListLiveVoiceSessions(req: Request, res: Response, next: NextFunction) {
+  try {
+    const sessions = await listLiveVoiceSessions();
+    sendSuccess(res, sessions);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getTwilioValidUrl(req: Request): string {
   const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
@@ -129,8 +142,12 @@ export async function handleVoiceInboundWebhook(req: Request, res: Response, nex
     }
 
     const { CallSid, From, To } = req.body as Record<string, string>;
+    let session: Awaited<ReturnType<typeof handleVoiceInbound>>['session'] | null = null;
+    let eligibleAgentIds: string[] = [];
     if (CallSid && From && To) {
-      await handleVoiceInbound({ callSid: CallSid, from: From, to: To });
+      const prepared = await handleVoiceInbound({ callSid: CallSid, from: From, to: To });
+      session = prepared.session;
+      eligibleAgentIds = prepared.eligibleAgentIds;
     }
 
     // Respond with TwiML — ring the agent's browser (Twilio Voice Client).
@@ -138,18 +155,28 @@ export async function handleVoiceInboundWebhook(req: Request, res: Response, nex
     const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
     const statusCallbackUrl = `${proto}://${req.get('host')}/api/calls/voice/status`;
     res.set('Content-Type', 'text/xml');
-    if (env.TWILIO_API_KEY && env.TWILIO_TWIML_APP_SID) {
-      // Ring all active users simultaneously — first to answer handles the call
-      const activeUsers = await prisma.user.findMany({
-        where: { isActive: true },
-        select: { id: true },
-      });
-      const identities = activeUsers.map((u) => u.id);
-      const clientsXml = identities
-        .map((id) => `<Client statusCallbackEvent="initiated ringing answered completed" statusCallback="${statusCallbackUrl}" statusCallbackMethod="POST">${id}</Client>`)
-        .join('');
-      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">Connecting you to an agent now.</Say><Dial timeout="30" answerOnBridge="true" action="${statusCallbackUrl}" method="POST">${clientsXml}</Dial></Response>`;
-      res.send(twiml);
+    if (env.TWILIO_API_KEY && env.TWILIO_TWIML_APP_SID && session) {
+      if (eligibleAgentIds.length === 0) {
+        await markIncomingVoiceSessionMissed(session.id, 'no_available_agents');
+        res.send(inboundCallTwiml());
+        return;
+      }
+
+      res.send(
+        dialClientsTwiml(
+          eligibleAgentIds.map((identity) => ({
+            identity,
+            parameters: {
+              sessionId: session.id,
+              candidateId: session.candidateId,
+              candidateName: session.candidateName,
+              phoneNumber: session.phoneNumber,
+              isUnknownCaller: String(session.isUnknownCaller),
+            },
+          })),
+          statusCallbackUrl,
+        ),
+      );
     } else {
       res.send(inboundCallTwiml());
     }
@@ -165,16 +192,49 @@ export async function handleVoiceStatusWebhook(req: Request, res: Response, next
       return sendError(res, 403, 'Invalid Twilio signature');
     }
 
-    const { CallSid, CallStatus, CallDuration } = req.body as Record<string, string>;
-    if (CallSid && CallStatus) {
+    const payload = req.body as Record<string, string>;
+    const callSid = payload.DialCallSid || payload.CallSid;
+    const callStatus = payload.DialCallStatus || payload.CallStatus;
+    const callDuration = payload.DialCallDuration || payload.CallDuration;
+    if (callSid && callStatus) {
       await handleVoiceStatus({
-        callSid: CallSid,
-        callStatus: CallStatus,
-        callDuration: CallDuration,
+        callSid,
+        callStatus,
+        callDuration,
       });
     }
 
     res.sendStatus(204);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/calls/voice/:sessionId/claim — authenticated, agent claims a ringing call
+export async function handleClaimIncomingVoiceCall(req: Request, res: Response, next: NextFunction) {
+  try {
+    const session = await claimIncomingVoiceSession({
+      sessionId: req.params.sessionId,
+      agentId: req.user!.userId,
+      bridgedCallSid: (req.body as { bridgedCallSid?: string }).bridgedCallSid,
+    });
+    sendSuccess(res, session);
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.includes('not available')) {
+      return sendError(res, 409, err.message);
+    }
+    if (err instanceof Error && err.message.includes('already been taken')) {
+      return sendError(res, 409, err.message);
+    }
+    next(err);
+  }
+}
+
+// POST /api/calls/voice/:sessionId/reject — local decline without claiming
+export async function handleRejectIncomingVoiceCall(req: Request, res: Response, next: NextFunction) {
+  try {
+    const session = await rejectIncomingVoiceSession(req.params.sessionId);
+    sendSuccess(res, session ?? { ok: true, sessionId: req.params.sessionId });
   } catch (err) {
     next(err);
   }

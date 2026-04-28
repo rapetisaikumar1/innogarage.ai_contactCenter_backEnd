@@ -43,10 +43,21 @@ enum CallDirection {
 }
 
 enum CallStatus {
-  COMPLETED
+  IN_CALL
   MISSED
-  FAILED
-  IN_PROGRESS
+  COMPLETED
+}
+
+enum VoiceSessionStatus {
+  RINGING
+  CLAIMED
+  IN_CALL
+  ENDED
+}
+
+enum VoicePresenceStatus {
+  IDLE
+  IN_CALL
 }
 
 enum FollowUpStatus {
@@ -93,6 +104,7 @@ model User {
   role         Role     @default(AGENT)
   isActive     Boolean  @default(true)
   availability UserAvailability @default(AVAILABLE)
+  voiceStatus  VoicePresenceStatus @default(IDLE)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -105,6 +117,7 @@ model User {
   auditLogs          AuditLog[]
   uploadedFiles      CandidateFile[]
   loggedCalls        Call[]
+  claimedVoiceSessions VoiceSession[] @relation("ClaimedVoiceSessions")
 
   // WhatsApp conversation assignment
   assignedConversations    Conversation[]              @relation("AssignedConversations")
@@ -148,6 +161,7 @@ model Candidate {
   files         CandidateFile[]
   conversation  Conversation?
   transferRequests CandidateTransferRequest[]
+  voiceSessions VoiceSession[]
 
   @@index([status])
   @@index([phoneNumber])
@@ -195,21 +209,51 @@ model Message {
 model Call {
   id             String        @id @default(cuid())
   candidateId    String
-  loggedById     String
+  loggedById     String?
   direction      CallDirection
   phoneNumber    String
   duration       Int?          // seconds
   status         CallStatus
   providerCallId String?       @unique
   notes          String?
+  voiceSessionId String?       @unique
   createdAt      DateTime      @default(now())
 
   candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  loggedBy  User      @relation(fields: [loggedById], references: [id])
+  loggedBy  User?     @relation(fields: [loggedById], references: [id])
+  voiceSession VoiceSession? @relation(fields: [voiceSessionId], references: [id])
 
   @@index([candidateId, createdAt])
   @@index([loggedById])
   @@map("calls")
+}
+
+model VoiceSession {
+  id              String             @id @default(cuid())
+  candidateId     String
+  direction       CallDirection
+  rootCallSid     String             @unique
+  bridgedCallSid  String?            @unique
+  fromNumber      String
+  toNumber        String
+  isUnknownCaller Boolean            @default(false)
+  status          VoiceSessionStatus @default(RINGING)
+  assignedAgentId String?
+  claimedAt       DateTime?
+  answeredAt      DateTime?
+  endedAt         DateTime?
+  rawEndReason    String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  candidate      Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  call           Call?
+  assignedAgent  User?     @relation("ClaimedVoiceSessions", fields: [assignedAgentId], references: [id])
+
+  @@index([status, assignedAgentId])
+  @@index([candidateId, createdAt])
+  @@index([assignedAgentId, status])
+  @@map("voice_sessions")
 }
 
 model Note {

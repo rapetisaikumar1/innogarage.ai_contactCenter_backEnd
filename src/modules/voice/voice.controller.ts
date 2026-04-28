@@ -6,8 +6,8 @@ import {
   validateTwilioSignature,
 } from '../../lib/twilio';
 import { env } from '../../config/env';
-import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
+import { registerBrowserOutboundCall } from '../calls/calls.service';
 
 // ─── GET /api/voice/token ─────────────────────────────────────────────────────
 // Authenticated. Returns a short-lived Twilio access token so the browser can
@@ -54,26 +54,19 @@ export async function handleOutboundTwiml(req: Request, res: Response, next: Nex
       return res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Missing destination number.</Say></Response>');
     }
 
-    // Best-effort: log the call. Do not fail the TwiML on DB errors.
+    // Best-effort: register the browser outbound call. Do not fail the TwiML on DB errors.
     try {
       if (candidateId && userId && callSid) {
-        const existing = await prisma.call.findFirst({ where: { providerCallId: callSid } });
-        if (!existing) {
-          await prisma.call.create({
-            data: {
-              candidateId,
-              loggedById: userId,
-              direction: 'OUTBOUND',
-              phoneNumber: To,
-              status: 'IN_PROGRESS',
-              providerCallId: callSid,
-            },
-          });
-          logger.info({ callSid, candidateId, userId, to: To }, 'Browser outbound call logged');
-        }
+        await registerBrowserOutboundCall({
+          candidateId,
+          userId,
+          callSid,
+          toNumber: To,
+        });
+        logger.info({ callSid, candidateId, userId, to: To }, 'Browser outbound call registered');
       }
     } catch (dbErr) {
-      logger.error({ err: dbErr, callSid }, 'Failed to log browser outbound call');
+      logger.error({ err: dbErr, callSid }, 'Failed to register browser outbound call');
     }
 
     res.set('Content-Type', 'text/xml');

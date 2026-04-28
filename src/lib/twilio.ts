@@ -58,6 +58,39 @@ export function inboundCallTwiml(companyName = 'Contact Center'): string {
 </Response>`;
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+export function dialClientsTwiml(
+  clients: Array<{ identity: string; parameters?: Record<string, string> }>,
+  statusCallbackUrl: string,
+  companyName = 'Contact Center'
+): string {
+  const clientsXml = clients
+    .map(({ identity, parameters }) => {
+      const paramsXml = Object.entries(parameters ?? {})
+        .map(([name, value]) => `<Parameter name="${escapeXml(name)}" value="${escapeXml(value)}" />`)
+        .join('');
+
+      return `<Client statusCallbackEvent="initiated ringing answered completed" statusCallback="${escapeXml(statusCallbackUrl)}" statusCallbackMethod="POST"><Identity>${escapeXml(identity)}</Identity>${paramsXml}</Client>`;
+    })
+    .join('');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Thank you for calling ${escapeXml(companyName)}. Connecting you to an available agent now.</Say>
+  <Dial timeout="30" answerOnBridge="true" action="${escapeXml(statusCallbackUrl)}" method="POST">
+    ${clientsXml}
+  </Dial>
+</Response>`;
+}
+
 // Ring the agent's browser (Twilio Client). Used for inbound calls so that
 // whoever is logged in to the contact center app receives the call in-browser.
 // action= fires the status webhook when the Dial leg ends (call completes/times out).

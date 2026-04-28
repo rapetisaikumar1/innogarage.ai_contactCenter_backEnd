@@ -7,6 +7,7 @@ export interface AgentDTO {
   role: string;
   isActive: boolean;
   availability: 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE';
+  voiceStatus: 'IDLE' | 'IN_CALL';
   assignedConversationCount: number;
 }
 
@@ -32,6 +33,7 @@ export async function listAgents(): Promise<AgentDTO[]> {
       role: true,
       isActive: true,
       availability: true,
+      voiceStatus: true,
       _count: {
         select: {
           assignedConversations: { where: { status: 'ASSIGNED' } },
@@ -47,7 +49,8 @@ export async function listAgents(): Promise<AgentDTO[]> {
     email: u.email,
     role: u.role,
     isActive: u.isActive,
-    availability: (u.availability ?? 'OFFLINE') as 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE',
+    availability: (u.voiceStatus === 'IN_CALL' ? 'BUSY' : (u.availability ?? 'OFFLINE')) as 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE',
+    voiceStatus: (u.voiceStatus ?? 'IDLE') as 'IDLE' | 'IN_CALL',
     assignedConversationCount: u._count.assignedConversations,
   }));
 }
@@ -101,6 +104,7 @@ export async function updateAgentAvailability(
       role: true,
       isActive: true,
       availability: true,
+      voiceStatus: true,
       _count: { select: { assignedConversations: { where: { status: 'ASSIGNED' } } } },
     },
   });
@@ -111,7 +115,8 @@ export async function updateAgentAvailability(
     email: updated.email,
     role: updated.role,
     isActive: updated.isActive,
-    availability: (updated.availability ?? 'OFFLINE') as 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE',
+    availability: (updated.voiceStatus === 'IN_CALL' ? 'BUSY' : (updated.availability ?? 'OFFLINE')) as 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE',
+    voiceStatus: (updated.voiceStatus ?? 'IDLE') as 'IDLE' | 'IN_CALL',
     assignedConversationCount: updated._count.assignedConversations,
   };
 }
