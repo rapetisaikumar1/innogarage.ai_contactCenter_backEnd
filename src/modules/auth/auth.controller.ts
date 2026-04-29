@@ -12,7 +12,8 @@ export async function handleLogin(req: Request, res: Response): Promise<void> {
     sendSuccess(res, result);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Login failed';
-    sendError(res, 401, message);
+    const statusCode = err instanceof Error ? (err as Error & { statusCode?: number }).statusCode ?? 401 : 401;
+    sendError(res, statusCode, message);
   }
 }
 
@@ -23,6 +24,7 @@ export async function handleGetMe(req: Request, res: Response): Promise<void> {
     sendSuccess(res, user);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to fetch user';
-    sendError(res, 404, message);
+    const statusCode = err instanceof Error ? (err as Error & { statusCode?: number }).statusCode ?? 404 : 404;
+    sendError(res, statusCode, message);
   }
 }

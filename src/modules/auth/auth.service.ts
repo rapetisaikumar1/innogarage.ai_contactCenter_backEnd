@@ -20,8 +20,12 @@ export async function login(input: LoginInput): Promise<LoginResult> {
     },
   });
 
-  if (!user || !user.isActive) {
+  if (!user) {
     throw new Error('Invalid email or password');
+  }
+
+  if (!user.isActive) {
+    throw Object.assign(new Error('Your account has been disabled. Please contact your administrator.'), { statusCode: 403 });
   }
 
   const passwordMatch = await bcrypt.compare(input.password, user.passwordHash);
@@ -61,8 +65,12 @@ export async function getMe(userId: string): Promise<AuthUser> {
     },
   });
 
-  if (!user || !user.isActive) {
+  if (!user) {
     throw new Error('User not found');
+  }
+
+  if (!user.isActive) {
+    throw Object.assign(new Error('Your account has been disabled. Please contact your administrator.'), { statusCode: 403 });
   }
 
   return {

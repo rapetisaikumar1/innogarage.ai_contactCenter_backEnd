@@ -34,7 +34,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     }
 
     if (!user.isActive) {
-      sendError(res, 401, 'Account is disabled');
+      sendError(res, 403, 'Your account has been disabled. Please contact your administrator.');
       return;
     }
 
