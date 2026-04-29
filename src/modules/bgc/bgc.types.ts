@@ -1,31 +1,31 @@
 import { z } from 'zod';
 
+const requiredText = (label: string, max = 160) =>
+  z.string().trim().min(1, `${label} is required`).max(max);
+
 const optionalText = z
   .string()
   .trim()
   .optional()
   .transform((value) => (value ? value : null));
 
-const optionalDate = z
-  .string()
-  .trim()
-  .optional()
-  .transform((value) => (value ? value : null));
+const requiredDate = (label: string) =>
+  z.string().trim().min(1, `${label} is required`);
 
 export const createBgcRecordSchema = z.object({
-  fullName: z.string().trim().min(1, 'Full name is required').max(160),
-  dob: optionalDate,
-  usEmployerName: optionalText,
-  usJobTitle: optionalText,
-  usFromDate: optionalDate,
-  usToDate: optionalDate,
+  fullName: requiredText('Full name'),
+  dob: requiredDate('DOB'),
+  usEmployerName: requiredText('US / Canada employer name'),
+  usJobTitle: requiredText('US / Canada job title'),
+  usFromDate: requiredDate('US / Canada from date'),
+  usToDate: requiredDate('US / Canada to date'),
   usReference1: optionalText,
   usReference2: optionalText,
   usReference3: optionalText,
-  indiaEmployerName: optionalText,
-  indiaJobTitle: optionalText,
-  indiaFromDate: optionalDate,
-  indiaToDate: optionalDate,
+  indiaEmployerName: requiredText('Indian employer name'),
+  indiaJobTitle: requiredText('Indian job title'),
+  indiaFromDate: requiredDate('Indian from date'),
+  indiaToDate: requiredDate('Indian to date'),
   indiaReference1: optionalText,
   indiaReference2: optionalText,
   indiaReference3: optionalText,
@@ -75,5 +75,11 @@ export const BGC_DOCUMENT_FIELDS: BgcDocumentField[] = [
   'usCanadaBgcFiles',
   'indiaBgcFiles',
 ];
+
+export const BGC_DOCUMENT_FIELD_LABELS: Record<BgcDocumentField, string> = {
+  resumeFiles: 'Resume Used',
+  usCanadaBgcFiles: 'US/Canada BGC Documents',
+  indiaBgcFiles: 'Indian BGC Documents',
+};
 
 export const MAX_BGC_FILES_PER_FIELD = 10;

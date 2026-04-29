@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { sendError, sendSuccess } from '../../utils/response';
 import { createBgcRecord, listBgcRecords } from './bgc.service';
-import { BGC_DOCUMENT_FIELDS, BgcDocumentField, createBgcRecordSchema } from './bgc.types';
+import { BGC_DOCUMENT_FIELDS, BGC_DOCUMENT_FIELD_LABELS, BgcDocumentField, createBgcRecordSchema } from './bgc.types';
 
 function getUploadedFiles(req: Request): Partial<Record<BgcDocumentField, Express.Multer.File[]>> {
   const files = req.files as Partial<Record<BgcDocumentField, Express.Multer.File[]>> | undefined;
@@ -12,6 +12,12 @@ function getUploadedFiles(req: Request): Partial<Record<BgcDocumentField, Expres
   }
 
   return result;
+}
+
+function getMissingRequiredFileErrors(files: Partial<Record<BgcDocumentField, Express.Multer.File[]>>): string[] {
+  return BGC_DOCUMENT_FIELDS.filter((field) => (files[field] ?? []).length === 0).map(
+    (field) => `${BGC_DOCUMENT_FIELD_LABELS[field]} is required.`,
+  );
 }
 
 export async function handleListBgcRecords(_req: Request, res: Response, next: NextFunction) {
@@ -26,12 +32,18 @@ export async function handleListBgcRecords(_req: Request, res: Response, next: N
 export async function handleCreateBgcRecord(req: Request, res: Response, next: NextFunction) {
   try {
     const validation = createBgcRecordSchema.safeParse(req.body);
+    const files = getUploadedFiles(req);
+    const missingFileErrors = getMissingRequiredFileErrors(files);
 
     if (!validation.success) {
       return sendError(res, 422, 'Validation failed', validation.error.flatten().fieldErrors);
     }
 
-    const record = await createBgcRecord(validation.data, req.user!.userId, getUploadedFiles(req));
+    if (missingFileErrors.length > 0) {
+      return sendError(res, 422, 'Validation failed', { files: missingFileErrors });
+    }
+
+    const record = await createBgcRecord(validation.data, req.user!.userId, files);
     sendSuccess(res, record, 201);
   } catch (err) {
     next(err);
