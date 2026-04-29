@@ -48,6 +48,7 @@ export interface AvailableTechnologyDTO {
   name: string;
   category: TechnologyCategoryValue;
   description: string | null;
+  candidateCount: number;
   createdAt: Date;
   updatedAt: Date;
 }

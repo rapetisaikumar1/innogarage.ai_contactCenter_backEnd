@@ -14,6 +14,21 @@ const AVAILABLE_TECHNOLOGY_SELECT = {
   updatedAt: true,
 } as const;
 
+function normalizeTechnologyName(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+async function countCandidatesForTechnology(name: string): Promise<number> {
+  return prisma.candidate.count({
+    where: {
+      preferredRole: {
+        equals: name,
+        mode: 'insensitive',
+      },
+    },
+  });
+}
+
 async function ensureTechnologyNameAvailable(name: string, excludeId?: string): Promise<void> {
   const existing = await prisma.availableTechnology.findFirst({
     where: {
@@ -32,13 +47,45 @@ async function ensureTechnologyNameAvailable(name: string, excludeId?: string): 
 }
 
 export async function listAvailableTechnologies(): Promise<AvailableTechnologyDTO[]> {
-  return prisma.availableTechnology.findMany({
-    select: AVAILABLE_TECHNOLOGY_SELECT,
-    orderBy: [
-      { category: 'asc' },
-      { name: 'asc' },
-    ],
-  });
+  const [technologies, candidatePreferences] = await prisma.$transaction([
+    prisma.availableTechnology.findMany({
+      select: AVAILABLE_TECHNOLOGY_SELECT,
+      orderBy: [
+        { category: 'asc' },
+        { name: 'asc' },
+      ],
+    }),
+    prisma.candidate.findMany({
+      where: {
+        preferredRole: {
+          not: null,
+        },
+      },
+      select: {
+        preferredRole: true,
+      },
+    }),
+  ]);
+
+  const candidateCountByTechnology = new Map<string, number>();
+
+  for (const candidate of candidatePreferences) {
+    const normalizedName = normalizeTechnologyName(candidate.preferredRole);
+
+    if (!normalizedName) {
+      continue;
+    }
+
+    candidateCountByTechnology.set(
+      normalizedName,
+      (candidateCountByTechnology.get(normalizedName) ?? 0) + 1,
+    );
+  }
+
+  return technologies.map((technology) => ({
+    ...technology,
+    candidateCount: candidateCountByTechnology.get(normalizeTechnologyName(technology.name)) ?? 0,
+  }));
 }
 
 export async function createAvailableTechnology(
@@ -46,7 +93,7 @@ export async function createAvailableTechnology(
 ): Promise<AvailableTechnologyDTO> {
   await ensureTechnologyNameAvailable(input.name);
 
-  return prisma.availableTechnology.create({
+  const technology = await prisma.availableTechnology.create({
     data: {
       name: input.name,
       category: input.category,
@@ -54,6 +101,11 @@ export async function createAvailableTechnology(
     },
     select: AVAILABLE_TECHNOLOGY_SELECT,
   });
+
+  return {
+    ...technology,
+    candidateCount: await countCandidatesForTechnology(technology.name),
+  };
 }
 
 export async function updateAvailableTechnology(
@@ -73,7 +125,7 @@ export async function updateAvailableTechnology(
     await ensureTechnologyNameAvailable(input.name, technologyId);
   }
 
-  return prisma.availableTechnology.update({
+  const technology = await prisma.availableTechnology.update({
     where: { id: technologyId },
     data: {
       ...(input.name !== undefined ? { name: input.name } : {}),
@@ -82,6 +134,11 @@ export async function updateAvailableTechnology(
     },
     select: AVAILABLE_TECHNOLOGY_SELECT,
   });
+
+  return {
+    ...technology,
+    candidateCount: await countCandidatesForTechnology(technology.name),
+  };
 }
 
 export async function deleteAvailableTechnology(technologyId: string): Promise<void> {
