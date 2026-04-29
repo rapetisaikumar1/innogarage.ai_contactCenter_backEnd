@@ -175,6 +175,26 @@ export async function handleRespondToTransferRequest(req: Request, res: Response
         `You have accepted the transfer. ${candidateName} is now assigned to you.`,
         { candidateId: updated.candidateId, requestId: updated.id },
       );
+
+      const admins = await prisma.user.findMany({
+        where: { role: 'ADMIN', isActive: true },
+        select: { id: true },
+      });
+
+      await Promise.all(
+        admins.map((admin) => createAgentNotification(
+          admin.id,
+          'TRANSFER_ACCEPTED',
+          'Candidate Transfer Completed',
+          `${candidateName} was transferred from ${updated.fromAgent.name} to ${updated.toAgent.name}.`,
+          {
+            candidateId: updated.candidateId,
+            requestId: updated.id,
+            fromAgentId: updated.fromAgentId,
+            toAgentId: updated.toAgentId,
+          },
+        )),
+      );
     } else {
       await createAgentNotification(
         updated.fromAgentId,
