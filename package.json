@@ -4,7 +4,7 @@
   "description": "Contact Center Backend API",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev": "prisma generate && ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "prisma generate && tsc",
     "start": "node dist/server.js",
     "db:generate": "prisma generate",

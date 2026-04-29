@@ -18,10 +18,15 @@ export async function handleGetToken(req: Request, res: Response, next: NextFunc
     // This ensures inbound calls can be routed to a specific agent's browser.
     const identity = req.user!.userId;
     const token = generateVoiceAccessToken(identity);
-    sendSuccess(res, { token, identity });
+    sendSuccess(res, { enabled: true, token, identity });
   } catch (err: unknown) {
     if (err instanceof Error && err.message.includes('not configured')) {
-      return sendError(res, 503, err.message);
+      return sendSuccess(res, {
+        enabled: false,
+        token: null,
+        identity: req.user!.userId,
+        message: err.message,
+      });
     }
     next(err);
   }

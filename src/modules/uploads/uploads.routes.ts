@@ -8,7 +8,7 @@ import { sendError } from '../../utils/response';
 const router = Router({ mergeParams: true });
 
 const ALLOWED_MIMES = [
-  'image/jpeg', 'image/png', 'image/webp',
+  'image/jpeg', 'image/png', 'image/webp', 'image/svg+xml',
   'application/pdf',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
