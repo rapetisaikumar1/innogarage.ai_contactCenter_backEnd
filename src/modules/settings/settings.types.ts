@@ -35,6 +35,7 @@ export const createUserSchema = z.object({
   departmentId: z.string().min(1).optional().nullable(),
   canAccessBgc: z.boolean().default(false),
   canAccessPaymentHistory: z.boolean().default(false),
+  canAccessMentors: z.boolean().default(false),
 }).superRefine((data, ctx) => {
   if (data.role === 'AGENT' && !data.departmentId) {
     ctx.addIssue({
@@ -83,6 +84,7 @@ export interface UserDTO {
   department: { id: string; name: string } | null;
   canAccessBgc: boolean;
   canAccessPaymentHistory: boolean;
+  canAccessMentors: boolean;
   isActive: boolean;
   createdAt: Date;
 }

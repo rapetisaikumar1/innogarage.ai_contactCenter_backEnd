@@ -14,6 +14,7 @@ export interface AuthUser {
   role: string;
   canAccessBgc: boolean;
   canAccessPaymentHistory: boolean;
+  canAccessMentors: boolean;
 }
 
 export interface LoginResult {

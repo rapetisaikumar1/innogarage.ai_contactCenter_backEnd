@@ -22,6 +22,7 @@ const USER_SELECT = {
   department: { select: { id: true, name: true } },
   canAccessBgc: true,
   canAccessPaymentHistory: true,
+  canAccessMentors: true,
   isActive: true,
   createdAt: true,
 } as const;
@@ -153,6 +154,7 @@ export async function createUser(input: CreateUserInput): Promise<UserDTO> {
       departmentId: isMentor ? input.departmentId! : null,
       canAccessBgc: isMentor ? input.canAccessBgc : false,
       canAccessPaymentHistory: isMentor ? input.canAccessPaymentHistory : false,
+      canAccessMentors: isMentor ? input.canAccessMentors : false,
     },
     select: USER_SELECT,
   });
@@ -176,6 +178,7 @@ export async function updateUser(targetUserId: string, input: UpdateUserInput): 
         departmentId: null,
         canAccessBgc: false,
         canAccessPaymentHistory: false,
+        canAccessMentors: false,
       }),
       ...(input.isActive !== undefined && { isActive: input.isActive }),
     },

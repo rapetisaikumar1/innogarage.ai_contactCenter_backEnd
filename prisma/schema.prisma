@@ -124,6 +124,7 @@ model User {
   departmentId String?
   canAccessBgc Boolean  @default(false)
   canAccessPaymentHistory Boolean @default(false)
+  canAccessMentors Boolean @default(false)
   isActive     Boolean  @default(true)
   availability UserAvailability @default(AVAILABLE)
   voiceStatus  VoicePresenceStatus @default(IDLE)

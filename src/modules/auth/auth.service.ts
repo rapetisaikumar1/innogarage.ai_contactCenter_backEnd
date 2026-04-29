@@ -16,6 +16,7 @@ export async function login(input: LoginInput): Promise<LoginResult> {
       passwordHash: true,
       canAccessBgc: true,
       canAccessPaymentHistory: true,
+      canAccessMentors: true,
     },
   });
 
@@ -39,6 +40,7 @@ export async function login(input: LoginInput): Promise<LoginResult> {
     role: user.role,
     canAccessBgc: user.canAccessBgc,
     canAccessPaymentHistory: user.canAccessPaymentHistory,
+    canAccessMentors: user.canAccessMentors,
   };
 
   return { token, user: authUser };
@@ -55,6 +57,7 @@ export async function getMe(userId: string): Promise<AuthUser> {
       isActive: true,
       canAccessBgc: true,
       canAccessPaymentHistory: true,
+      canAccessMentors: true,
     },
   });
 
@@ -69,6 +72,7 @@ export async function getMe(userId: string): Promise<AuthUser> {
     role: user.role,
     canAccessBgc: user.canAccessBgc,
     canAccessPaymentHistory: user.canAccessPaymentHistory,
+    canAccessMentors: user.canAccessMentors,
   };
 }
 
