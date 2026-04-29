@@ -8,6 +8,9 @@ import {
   handleListUsers,
   handleCreateUser,
   handleUpdateUser,
+  handleDeleteUser,
+  handleListDepartments,
+  handleCreateDepartment,
 } from './settings.controller';
 
 const router = Router();
@@ -24,5 +27,10 @@ router.post('/password', ...handleChangePassword);
 router.get('/users', authorize('ADMIN', 'MANAGER'), handleListUsers);
 router.post('/users', authorize('ADMIN'), ...handleCreateUser);
 router.patch('/users/:userId', authorize('ADMIN'), ...handleUpdateUser);
+router.delete('/users/:userId', authorize('ADMIN'), handleDeleteUser);
+
+// ─── Departments (ADMIN only) ────────────────────────────────────────────────
+router.get('/departments', authorize('ADMIN'), handleListDepartments);
+router.post('/departments', authorize('ADMIN'), ...handleCreateDepartment);
 
 export default router;

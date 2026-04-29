@@ -6,6 +6,7 @@ import {
   changePasswordSchema,
   createUserSchema,
   updateUserSchema,
+  createDepartmentSchema,
 } from './settings.types';
 import {
   getProfile,
@@ -14,6 +15,9 @@ import {
   listUsers,
   createUser,
   updateUser,
+  deleteUser,
+  listDepartments,
+  createDepartment,
 } from './settings.service';
 
 // GET /api/settings/profile
@@ -80,6 +84,44 @@ export const handleCreateUser = [
     }
   },
 ];
+
+// GET /api/settings/departments
+export async function handleListDepartments(req: Request, res: Response, next: NextFunction) {
+  try {
+    const departments = await listDepartments();
+    sendSuccess(res, departments);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/settings/departments
+export const handleCreateDepartment = [
+  validate(createDepartmentSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const department = await createDepartment(req.body);
+      sendSuccess(res, department, 201);
+    } catch (err: unknown) {
+      const e = err as { message: string; statusCode?: number };
+      if (e.statusCode) return sendError(res, e.statusCode, e.message);
+      next(err);
+    }
+  },
+];
+
+// DELETE /api/settings/users/:userId
+export async function handleDeleteUser(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { userId } = req.params;
+    await deleteUser(userId, req.user!.userId);
+    sendSuccess(res, { message: 'User deleted successfully' });
+  } catch (err: unknown) {
+    const e = err as { message: string; statusCode?: number };
+    if (e.statusCode) return sendError(res, e.statusCode, e.message);
+    next(err);
+  }
+}
 
 // PATCH /api/settings/users/:userId
 export const handleUpdateUser = [

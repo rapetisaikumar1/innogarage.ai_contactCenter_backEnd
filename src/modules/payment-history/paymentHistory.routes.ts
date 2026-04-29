@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/authenticate';
-import { authorize } from '../../middleware/authorize';
+import { authorizePortalAccess } from '../../middleware/authorizePortalAccess';
 import {
   handleCreatePaymentHistory,
   handleDeletePaymentHistory,
@@ -12,7 +12,7 @@ import {
 const router = Router();
 
 router.use(authenticate);
-router.use(authorize('ADMIN'));
+router.use(authorizePortalAccess('paymentHistory'));
 
 router.get('/', handleListPaymentHistories);
 router.get('/:paymentHistoryId', ...handleGetPaymentHistory);

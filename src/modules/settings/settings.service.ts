@@ -1,10 +1,13 @@
 import bcrypt from 'bcryptjs';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import {
   UpdateProfileInput,
   ChangePasswordInput,
   CreateUserInput,
   UpdateUserInput,
+  CreateDepartmentInput,
+  DepartmentDTO,
   UserDTO,
 } from './settings.types';
 
@@ -13,9 +16,30 @@ const USER_SELECT = {
   name: true,
   email: true,
   role: true,
+  departmentId: true,
+  department: { select: { id: true, name: true } },
+  canAccessBgc: true,
+  canAccessPaymentHistory: true,
   isActive: true,
   createdAt: true,
 } as const;
+
+const DEPARTMENT_SELECT = {
+  id: true,
+  name: true,
+  description: true,
+  createdAt: true,
+} as const;
+
+function deriveNameFromEmail(email: string): string {
+  const localPart = email.split('@')[0] || email;
+  const name = localPart
+    .replace(/[._-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+  return name.length >= 2 ? name : email;
+}
 
 // ─── Get own profile ──────────────────────────────────────────────────────────
 export async function getProfile(userId: string): Promise<UserDTO> {
@@ -73,19 +97,60 @@ export async function listUsers(): Promise<UserDTO[]> {
   });
 }
 
+// ─── List departments (ADMIN only) ───────────────────────────────────────────
+export async function listDepartments(): Promise<DepartmentDTO[]> {
+  return prisma.department.findMany({
+    select: DEPARTMENT_SELECT,
+    orderBy: { name: 'asc' },
+  });
+}
+
+// ─── Create department (ADMIN only) ──────────────────────────────────────────
+export async function createDepartment(input: CreateDepartmentInput): Promise<DepartmentDTO> {
+  const name = input.name.trim();
+  const existing = await prisma.department.findFirst({
+    where: { name: { equals: name, mode: 'insensitive' } },
+    select: { id: true },
+  });
+
+  if (existing) throw Object.assign(new Error('Department already exists'), { statusCode: 409 });
+
+  return prisma.department.create({
+    data: {
+      name,
+      description: input.description?.trim() || null,
+    },
+    select: DEPARTMENT_SELECT,
+  });
+}
+
 // ─── Create user (ADMIN only) ─────────────────────────────────────────────────
 export async function createUser(input: CreateUserInput): Promise<UserDTO> {
   const existing = await prisma.user.findUnique({ where: { email: input.email }, select: { id: true } });
   if (existing) throw Object.assign(new Error('Email is already in use'), { statusCode: 409 });
 
+  const isMentor = input.role === 'AGENT';
+
+  if (isMentor) {
+    const department = await prisma.department.findUnique({
+      where: { id: input.departmentId! },
+      select: { id: true },
+    });
+
+    if (!department) throw Object.assign(new Error('Department not found'), { statusCode: 400 });
+  }
+
   const passwordHash = await bcrypt.hash(input.password, 12);
 
   const user = await prisma.user.create({
     data: {
-      name: input.name,
+      name: input.name?.trim() || deriveNameFromEmail(input.email),
       email: input.email,
       passwordHash,
       role: input.role,
+      departmentId: isMentor ? input.departmentId! : null,
+      canAccessBgc: isMentor ? input.canAccessBgc : false,
+      canAccessPaymentHistory: isMentor ? input.canAccessPaymentHistory : false,
     },
     select: USER_SELECT,
   });
@@ -103,10 +168,35 @@ export async function updateUser(targetUserId: string, input: UpdateUserInput): 
     data: {
       ...(input.name !== undefined && { name: input.name }),
       ...(input.role !== undefined && { role: input.role }),
+      ...(input.role !== undefined && input.role !== 'AGENT' && {
+        departmentId: null,
+        canAccessBgc: false,
+        canAccessPaymentHistory: false,
+      }),
       ...(input.isActive !== undefined && { isActive: input.isActive }),
     },
     select: USER_SELECT,
   });
 
   return updated;
+}
+
+// ─── Delete user (ADMIN only) ────────────────────────────────────────────────
+export async function deleteUser(targetUserId: string, currentUserId: string): Promise<void> {
+  if (targetUserId === currentUserId) {
+    throw Object.assign(new Error('You cannot delete your own account'), { statusCode: 400 });
+  }
+
+  const existing = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true } });
+  if (!existing) throw Object.assign(new Error('User not found'), { statusCode: 404 });
+
+  try {
+    await prisma.user.delete({ where: { id: targetUserId } });
+  } catch (err: unknown) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
+      throw Object.assign(new Error('This user has activity history and cannot be deleted'), { statusCode: 409 });
+    }
+
+    throw err;
+  }
 }

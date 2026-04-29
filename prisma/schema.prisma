@@ -121,6 +121,9 @@ model User {
   email        String   @unique
   passwordHash String
   role         Role     @default(AGENT)
+  departmentId String?
+  canAccessBgc Boolean  @default(false)
+  canAccessPaymentHistory Boolean @default(false)
   isActive     Boolean  @default(true)
   availability UserAvailability @default(AVAILABLE)
   voiceStatus  VoicePresenceStatus @default(IDLE)
@@ -140,6 +143,7 @@ model User {
   reservedVoiceSessions VoiceSession[] @relation("ReservedVoiceSessions")
   bgcRecords         BgcRecord[] @relation("BgcRecordsCreatedBy")
   paymentHistories   PaymentHistory[] @relation("PaymentHistoryCreatedBy")
+  department         Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
   // WhatsApp conversation assignment
   assignedConversations    Conversation[]              @relation("AssignedConversations")
@@ -155,7 +159,20 @@ model User {
   // Agent notifications
   agentNotifications AgentNotification[]
 
+  @@index([departmentId])
   @@map("users")
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users User[]
+
+  @@map("departments")
 }
 
 model Candidate {

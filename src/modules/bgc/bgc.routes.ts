@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { authenticate } from '../../middleware/authenticate';
-import { authorize } from '../../middleware/authorize';
+import { authorizePortalAccess } from '../../middleware/authorizePortalAccess';
 import { sendError } from '../../utils/response';
 import { ALLOWED_MIME_TYPES_LIST, MAX_FILE_SIZE_BYTES } from '../uploads/uploads.types';
 import { handleCreateBgcRecord, handleGetBgcRecord, handleListBgcRecords, handleUpdateBgcRecord } from './bgc.controller';
@@ -37,7 +37,7 @@ function multerErrorHandler(err: unknown, _req: Request, res: Response, next: Ne
   next(err);
 }
 
-router.use(authenticate, authorize('ADMIN'));
+router.use(authenticate, authorizePortalAccess('bgc'));
 
 router.get('/', handleListBgcRecords);
 router.get('/:recordId', handleGetBgcRecord);
