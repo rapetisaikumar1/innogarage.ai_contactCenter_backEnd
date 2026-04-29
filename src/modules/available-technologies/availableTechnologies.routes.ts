@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/authenticate';
+import { authorize } from '../../middleware/authorize';
 import {
   handleCreateAvailableTechnology,
   handleDeleteAvailableTechnology,
@@ -12,8 +13,8 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/', handleListAvailableTechnologies);
-router.post('/', ...handleCreateAvailableTechnology);
-router.patch('/:technologyId', ...handleUpdateAvailableTechnology);
-router.delete('/:technologyId', ...handleDeleteAvailableTechnology);
+router.post('/', authorize('ADMIN'), ...handleCreateAvailableTechnology);
+router.patch('/:technologyId', authorize('ADMIN'), ...handleUpdateAvailableTechnology);
+router.delete('/:technologyId', authorize('ADMIN'), ...handleDeleteAvailableTechnology);
 
 export default router;
