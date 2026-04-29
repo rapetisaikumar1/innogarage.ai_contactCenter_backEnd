@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
+import { prisma } from '../lib/prisma';
 import { sendError } from '../utils/response';
 
 export interface JwtPayload {
@@ -9,7 +10,7 @@ export interface JwtPayload {
   name?: string;
 }
 
-export function authenticate(req: Request, res: Response, next: NextFunction): void {
+export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -21,7 +22,23 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
 
   try {
     const payload = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
-    req.user = { userId: payload.userId, role: payload.role };
+
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { id: true, role: true, isActive: true },
+    });
+
+    if (!user) {
+      sendError(res, 401, 'Invalid or expired token');
+      return;
+    }
+
+    if (!user.isActive) {
+      sendError(res, 401, 'Account is disabled');
+      return;
+    }
+
+    req.user = { userId: user.id, role: user.role };
     next();
   } catch {
     sendError(res, 401, 'Invalid or expired token');

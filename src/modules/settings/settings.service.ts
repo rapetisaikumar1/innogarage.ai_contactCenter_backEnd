@@ -1,6 +1,8 @@
 import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { logger } from '../../lib/logger';
+import { emitToUser } from '../../lib/socket';
 import {
   UpdateProfileInput,
   ChangePasswordInput,
@@ -160,8 +162,10 @@ export async function createUser(input: CreateUserInput): Promise<UserDTO> {
 
 // ─── Update user (ADMIN only) ─────────────────────────────────────────────────
 export async function updateUser(targetUserId: string, input: UpdateUserInput): Promise<UserDTO> {
-  const existing = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true } });
+  const existing = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, isActive: true } });
   if (!existing) throw Object.assign(new Error('User not found'), { statusCode: 404 });
+
+  const shouldForceLogout = existing.isActive && input.isActive === false;
 
   const updated = await prisma.user.update({
     where: { id: targetUserId },
@@ -177,6 +181,14 @@ export async function updateUser(targetUserId: string, input: UpdateUserInput): 
     },
     select: USER_SELECT,
   });
+
+  if (shouldForceLogout) {
+    try {
+      emitToUser(targetUserId, 'account:disabled', { userId: targetUserId });
+    } catch (err) {
+      logger.warn({ err, targetUserId }, 'Failed to emit account disabled event');
+    }
+  }
 
   return updated;
 }
