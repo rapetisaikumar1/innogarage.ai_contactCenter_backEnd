@@ -12,12 +12,13 @@ export { cloudinary };
 export async function uploadToCloudinary(
   buffer: Buffer,
   originalName: string,
-  mimeType: string
+  mimeType: string,
+  folder = 'contact-center/candidates'
 ): Promise<{ url: string; publicId: string }> {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
-        folder: 'contact-center/candidates',
+        folder,
         resource_type: 'auto',
         use_filename: true,
         unique_filename: true,

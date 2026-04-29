@@ -130,6 +130,7 @@ model User {
   loggedCalls        Call[]
   claimedVoiceSessions VoiceSession[] @relation("ClaimedVoiceSessions")
   reservedVoiceSessions VoiceSession[] @relation("ReservedVoiceSessions")
+  bgcRecords         BgcRecord[] @relation("BgcRecordsCreatedBy")
 
   // WhatsApp conversation assignment
   assignedConversations    Conversation[]              @relation("AssignedConversations")
@@ -345,6 +346,38 @@ model CandidateFile {
   uploadedBy User      @relation(fields: [uploadedById], references: [id])
 
   @@map("candidate_files")
+}
+
+model BgcRecord {
+  id                    String   @id @default(cuid())
+  createdById           String
+  fullName              String
+  dob                   DateTime?
+  usEmployerName        String?
+  usJobTitle            String?
+  usFromDate            DateTime?
+  usToDate              DateTime?
+  usReference1          String?
+  usReference2          String?
+  usReference3          String?
+  indiaEmployerName     String?
+  indiaJobTitle         String?
+  indiaFromDate         DateTime?
+  indiaToDate           DateTime?
+  indiaReference1       String?
+  indiaReference2       String?
+  indiaReference3       String?
+  resumeFiles           Json
+  usCanadaBgcFiles      Json
+  indiaBgcFiles         Json
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  createdBy User @relation("BgcRecordsCreatedBy", fields: [createdById], references: [id])
+
+  @@index([createdAt])
+  @@index([fullName])
+  @@map("bgc_records")
 }
 
 model AuditLog {

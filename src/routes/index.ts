@@ -14,6 +14,7 @@ import settingsRoutes from '../modules/settings/settings.routes';
 import agentRoutes from '../modules/agents/agents.routes';
 import agentNotificationRoutes from '../modules/agent-notifications/agentNotifications.routes';
 import availableTechnologyRoutes from '../modules/available-technologies/availableTechnologies.routes';
+import bgcRoutes from '../modules/bgc/bgc.routes';
 
 const router = Router();
 
@@ -32,5 +33,6 @@ router.use('/settings', settingsRoutes);
 router.use('/agents', agentRoutes);
 router.use('/agent-notifications', agentNotificationRoutes);
 router.use('/available-technologies', availableTechnologyRoutes);
+router.use('/bgc', bgcRoutes);
 
 export default router;
