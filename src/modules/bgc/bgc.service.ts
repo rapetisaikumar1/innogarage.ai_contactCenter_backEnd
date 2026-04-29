@@ -80,6 +80,15 @@ export async function listBgcRecords(): Promise<BgcRecordDTO[]> {
   return records.map(toBgcRecordDTO);
 }
 
+export async function getBgcRecord(recordId: string): Promise<BgcRecordDTO | null> {
+  const record = await prisma.bgcRecord.findUnique({
+    where: { id: recordId },
+    include: BGC_RECORD_INCLUDE,
+  });
+
+  return record ? toBgcRecordDTO(record) : null;
+}
+
 export async function createBgcRecord(
   input: CreateBgcRecordInput,
   createdById: string,

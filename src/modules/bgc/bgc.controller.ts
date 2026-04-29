@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { sendError, sendSuccess } from '../../utils/response';
-import { createBgcRecord, listBgcRecords } from './bgc.service';
+import { createBgcRecord, getBgcRecord, listBgcRecords } from './bgc.service';
 import { BGC_DOCUMENT_FIELDS, BGC_DOCUMENT_FIELD_LABELS, BgcDocumentField, createBgcRecordSchema } from './bgc.types';
 
 function getUploadedFiles(req: Request): Partial<Record<BgcDocumentField, Express.Multer.File[]>> {
@@ -24,6 +24,20 @@ export async function handleListBgcRecords(_req: Request, res: Response, next: N
   try {
     const records = await listBgcRecords();
     sendSuccess(res, records);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function handleGetBgcRecord(req: Request, res: Response, next: NextFunction) {
+  try {
+    const record = await getBgcRecord(req.params.recordId);
+
+    if (!record) {
+      return sendError(res, 404, 'BGC record not found');
+    }
+
+    sendSuccess(res, record);
   } catch (err) {
     next(err);
   }
