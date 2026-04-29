@@ -10,6 +10,8 @@ import {
 } from './bgc.types';
 
 type BgcFileGroups = Partial<Record<BgcDocumentField, Express.Multer.File[]>>;
+type BgcRecordWithCreator = Prisma.BgcRecordGetPayload<{ include: typeof BGC_RECORD_INCLUDE }>;
+type BgcDocumentGroups = Record<BgcDocumentField, BgcDocumentDTO[]>;
 
 const BGC_RECORD_INCLUDE = {
   createdBy: { select: { id: true, name: true } },
@@ -27,9 +29,17 @@ function toJsonDocuments(documents: BgcDocumentDTO[]): Prisma.InputJsonValue {
   return documents as unknown as Prisma.InputJsonValue;
 }
 
-function toBgcRecordDTO(record: Prisma.BgcRecordGetPayload<{ include: typeof BGC_RECORD_INCLUDE }>): BgcRecordDTO {
+function toBgcRecordDTO(record: BgcRecordWithCreator): BgcRecordDTO {
   return {
     ...record,
+    resumeFiles: parseDocuments(record.resumeFiles),
+    usCanadaBgcFiles: parseDocuments(record.usCanadaBgcFiles),
+    indiaBgcFiles: parseDocuments(record.indiaBgcFiles),
+  };
+}
+
+function getDocumentGroups(record: BgcRecordWithCreator): BgcDocumentGroups {
+  return {
     resumeFiles: parseDocuments(record.resumeFiles),
     usCanadaBgcFiles: parseDocuments(record.usCanadaBgcFiles),
     indiaBgcFiles: parseDocuments(record.indiaBgcFiles),
@@ -142,6 +152,90 @@ export async function createBgcRecord(
       },
     });
 
+    return toBgcRecordDTO(record);
+  } catch (error) {
+    await cleanupUploadedDocuments(uploadedDocuments);
+    throw error;
+  }
+}
+
+export async function updateBgcRecord(
+  recordId: string,
+  input: CreateBgcRecordInput,
+  updatedById: string,
+  files: BgcFileGroups,
+): Promise<BgcRecordDTO | null> {
+  const currentRecord = await prisma.bgcRecord.findUnique({
+    where: { id: recordId },
+    include: BGC_RECORD_INCLUDE,
+  });
+
+  if (!currentRecord) {
+    return null;
+  }
+
+  const existingDocuments = getDocumentGroups(currentRecord);
+  const uploadedDocuments: Partial<Record<BgcDocumentField, BgcDocumentDTO[]>> = {};
+  const replacementDocuments: BgcDocumentGroups = {
+    resumeFiles: [...existingDocuments.resumeFiles],
+    usCanadaBgcFiles: [...existingDocuments.usCanadaBgcFiles],
+    indiaBgcFiles: [...existingDocuments.indiaBgcFiles],
+  };
+  const previousDocumentsToDelete: Partial<Record<BgcDocumentField, BgcDocumentDTO[]>> = {};
+
+  try {
+    for (const field of BGC_DOCUMENT_FIELDS) {
+      const nextFiles = files[field] ?? [];
+
+      if (nextFiles.length > 0) {
+        uploadedDocuments[field] = await uploadDocuments(nextFiles);
+        replacementDocuments[field] = uploadedDocuments[field] ?? [];
+        previousDocumentsToDelete[field] = existingDocuments[field];
+      }
+    }
+
+    const record = await prisma.bgcRecord.update({
+      where: { id: recordId },
+      data: {
+        fullName: input.fullName,
+        dob: parseDate(input.dob),
+        usEmployerName: input.usEmployerName,
+        usJobTitle: input.usJobTitle,
+        usFromDate: parseDate(input.usFromDate),
+        usToDate: parseDate(input.usToDate),
+        usReference1: input.usReference1,
+        usReference2: input.usReference2,
+        usReference3: input.usReference3,
+        indiaEmployerName: input.indiaEmployerName,
+        indiaJobTitle: input.indiaJobTitle,
+        indiaFromDate: parseDate(input.indiaFromDate),
+        indiaToDate: parseDate(input.indiaToDate),
+        indiaReference1: input.indiaReference1,
+        indiaReference2: input.indiaReference2,
+        indiaReference3: input.indiaReference3,
+        resumeFiles: toJsonDocuments(replacementDocuments.resumeFiles),
+        usCanadaBgcFiles: toJsonDocuments(replacementDocuments.usCanadaBgcFiles),
+        indiaBgcFiles: toJsonDocuments(replacementDocuments.indiaBgcFiles),
+      },
+      include: BGC_RECORD_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: updatedById,
+        action: 'BGC_RECORD_UPDATED',
+        entityType: 'BgcRecord',
+        entityId: record.id,
+        metadata: {
+          fullName: record.fullName,
+          replacedResumeFiles: uploadedDocuments.resumeFiles?.length ?? 0,
+          replacedUsCanadaBgcFiles: uploadedDocuments.usCanadaBgcFiles?.length ?? 0,
+          replacedIndiaBgcFiles: uploadedDocuments.indiaBgcFiles?.length ?? 0,
+        },
+      },
+    });
+
+    await cleanupUploadedDocuments(previousDocumentsToDelete);
     return toBgcRecordDTO(record);
   } catch (error) {
     await cleanupUploadedDocuments(uploadedDocuments);

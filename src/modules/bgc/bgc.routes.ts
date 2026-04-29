@@ -4,7 +4,7 @@ import { authenticate } from '../../middleware/authenticate';
 import { authorize } from '../../middleware/authorize';
 import { sendError } from '../../utils/response';
 import { ALLOWED_MIME_TYPES_LIST, MAX_FILE_SIZE_BYTES } from '../uploads/uploads.types';
-import { handleCreateBgcRecord, handleGetBgcRecord, handleListBgcRecords } from './bgc.controller';
+import { handleCreateBgcRecord, handleGetBgcRecord, handleListBgcRecords, handleUpdateBgcRecord } from './bgc.controller';
 import { MAX_BGC_FILES_PER_FIELD } from './bgc.types';
 
 const router = Router();
@@ -41,6 +41,16 @@ router.use(authenticate, authorize('ADMIN'));
 
 router.get('/', handleListBgcRecords);
 router.get('/:recordId', handleGetBgcRecord);
+router.patch(
+  '/:recordId',
+  upload.fields([
+    { name: 'resumeFiles', maxCount: MAX_BGC_FILES_PER_FIELD },
+    { name: 'usCanadaBgcFiles', maxCount: MAX_BGC_FILES_PER_FIELD },
+    { name: 'indiaBgcFiles', maxCount: MAX_BGC_FILES_PER_FIELD },
+  ]),
+  multerErrorHandler,
+  handleUpdateBgcRecord,
+);
 router.post(
   '/',
   upload.fields([
