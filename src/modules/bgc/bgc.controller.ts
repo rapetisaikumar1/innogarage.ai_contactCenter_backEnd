@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { sendError, sendSuccess } from '../../utils/response';
+import { parseMonthYearFilter } from '../../utils/monthYearFilter';
 import { createBgcRecord, getBgcRecord, listBgcRecords, updateBgcRecord } from './bgc.service';
 import { BGC_DOCUMENT_FIELDS, BGC_DOCUMENT_FIELD_LABELS, BgcDocumentField, createBgcRecordSchema } from './bgc.types';
 
@@ -20,9 +21,12 @@ function getMissingRequiredFileErrors(files: Partial<Record<BgcDocumentField, Ex
   );
 }
 
-export async function handleListBgcRecords(_req: Request, res: Response, next: NextFunction) {
+export async function handleListBgcRecords(req: Request, res: Response, next: NextFunction) {
   try {
-    const records = await listBgcRecords();
+    const parsedFilter = parseMonthYearFilter(req.query);
+    if (parsedFilter.error) return sendError(res, 400, parsedFilter.error);
+
+    const records = await listBgcRecords(parsedFilter.filter);
     sendSuccess(res, records);
   } catch (err) {
     next(err);

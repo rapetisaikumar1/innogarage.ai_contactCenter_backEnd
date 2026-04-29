@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { buildCreatedAtMonthYearFilter, MonthYearFilter } from '../../utils/monthYearFilter';
 import {
   CreatePaymentHistoryInput,
   PaymentHistoryDTO,
@@ -25,8 +26,11 @@ function normalizeOptionalText(value: string | undefined): string | null | undef
   return trimmed.length > 0 ? trimmed : null;
 }
 
-export async function listPaymentHistories(): Promise<PaymentHistoryDTO[]> {
+export async function listPaymentHistories(filter?: MonthYearFilter): Promise<PaymentHistoryDTO[]> {
+  const createdAtFilter = buildCreatedAtMonthYearFilter(filter);
+
   return prisma.paymentHistory.findMany({
+    ...(createdAtFilter ? { where: { createdAt: createdAtFilter } } : {}),
     select: PAYMENT_HISTORY_SELECT,
     orderBy: [
       { updatedAt: 'desc' },

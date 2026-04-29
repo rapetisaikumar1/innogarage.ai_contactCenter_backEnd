@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { validate, validateParams } from '../../middleware/validate';
+import { parseMonthYearFilter } from '../../utils/monthYearFilter';
 import { sendError, sendSuccess } from '../../utils/response';
 import {
   createPaymentHistorySchema,
@@ -14,9 +15,12 @@ import {
   updatePaymentHistory,
 } from './paymentHistory.service';
 
-export async function handleListPaymentHistories(_req: Request, res: Response, next: NextFunction) {
+export async function handleListPaymentHistories(req: Request, res: Response, next: NextFunction) {
   try {
-    const paymentHistories = await listPaymentHistories();
+    const parsedFilter = parseMonthYearFilter(req.query);
+    if (parsedFilter.error) return sendError(res, 400, parsedFilter.error);
+
+    const paymentHistories = await listPaymentHistories(parsedFilter.filter);
     sendSuccess(res, paymentHistories);
   } catch (err) {
     next(err);

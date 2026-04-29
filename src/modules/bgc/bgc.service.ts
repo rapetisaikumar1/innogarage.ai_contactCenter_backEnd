@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { uploadToCloudinary, deleteFromCloudinary } from '../../lib/cloudinary';
+import { buildCreatedAtMonthYearFilter, MonthYearFilter } from '../../utils/monthYearFilter';
 import {
   BGC_DOCUMENT_FIELDS,
   BgcDocumentDTO,
@@ -81,8 +82,10 @@ async function cleanupUploadedDocuments(groups: Partial<Record<BgcDocumentField,
   );
 }
 
-export async function listBgcRecords(): Promise<BgcRecordDTO[]> {
+export async function listBgcRecords(filter?: MonthYearFilter): Promise<BgcRecordDTO[]> {
+  const createdAtFilter = buildCreatedAtMonthYearFilter(filter);
   const records = await prisma.bgcRecord.findMany({
+    ...(createdAtFilter ? { where: { createdAt: createdAtFilter } } : {}),
     orderBy: { createdAt: 'desc' },
     include: BGC_RECORD_INCLUDE,
   });
