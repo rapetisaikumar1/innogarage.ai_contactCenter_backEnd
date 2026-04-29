@@ -105,6 +105,14 @@ enum TechnologyCategory {
   MISC_OTHER
 }
 
+enum PaymentHistoryStatus {
+  PAID_ON_TIME
+  ASKED_FOR_EXTENSION
+  FULLY_PAID
+  NOT_RESPONDING
+  ABSCONDED
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -131,6 +139,7 @@ model User {
   claimedVoiceSessions VoiceSession[] @relation("ClaimedVoiceSessions")
   reservedVoiceSessions VoiceSession[] @relation("ReservedVoiceSessions")
   bgcRecords         BgcRecord[] @relation("BgcRecordsCreatedBy")
+  paymentHistories   PaymentHistory[] @relation("PaymentHistoryCreatedBy")
 
   // WhatsApp conversation assignment
   assignedConversations    Conversation[]              @relation("AssignedConversations")
@@ -378,6 +387,26 @@ model BgcRecord {
   @@index([createdAt])
   @@index([fullName])
   @@map("bgc_records")
+}
+
+model PaymentHistory {
+  id             String               @id @default(cuid())
+  createdById    String
+  name           String
+  placedCompany  String
+  placedJobTitle String
+  status         PaymentHistoryStatus
+  notes          String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  createdBy User @relation("PaymentHistoryCreatedBy", fields: [createdById], references: [id])
+
+  @@index([createdAt])
+  @@index([name])
+  @@index([placedCompany])
+  @@index([status])
+  @@map("payment_histories")
 }
 
 model AuditLog {
