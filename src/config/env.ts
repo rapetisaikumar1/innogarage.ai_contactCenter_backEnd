@@ -21,7 +21,7 @@ const envSchema = z.object({
   TWILIO_API_KEY: z.string().default(''),         // SK… created in Twilio console > API keys
   TWILIO_API_SECRET: z.string().default(''),      // secret shown once when API key created
   TWILIO_TWIML_APP_SID: z.string().default(''),   // AP… TwiML App SID
-  TWILIO_AGENT_IDENTITY: z.string().default('agent'), // shared identity all agents register as
+  TWILIO_MENTOR_IDENTITY: z.string().default('mentor'), // shared identity all mentors register as
   // SECURITY: when true, skips Twilio webhook signature validation. NEVER enable in production.
   // Defaults to false. Use only for local testing.
   SKIP_WEBHOOK_VALIDATION: z

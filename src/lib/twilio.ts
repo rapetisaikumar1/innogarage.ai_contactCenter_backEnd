@@ -52,7 +52,7 @@ export async function makeOutboundCall(
 export function inboundCallTwiml(companyName = 'Contact Center'): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">Thank you for calling ${companyName}. An agent will be with you shortly.</Say>
+  <Say voice="alice">Thank you for calling ${companyName}. A mentor will be with you shortly.</Say>
   <Pause length="2"/>
   <Say voice="alice">Goodbye.</Say>
 </Response>`;
@@ -84,7 +84,7 @@ export function dialClientsTwiml(
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">Thank you for calling ${escapeXml(companyName)}. Connecting you to an available agent now.</Say>
+  <Say voice="alice">Thank you for calling ${escapeXml(companyName)}. Connecting you to an available mentor now.</Say>
   <Dial timeout="30" answerOnBridge="true" action="${escapeXml(statusCallbackUrl)}" method="POST">
     ${clientsXml}
   </Dial>
@@ -97,7 +97,7 @@ export function dialClientsTwiml(
 export function dialClientTwiml(identity: string, statusCallbackUrl: string, companyName = 'Contact Center'): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">Thank you for calling ${companyName}. Connecting you to an agent now.</Say>
+  <Say voice="alice">Thank you for calling ${companyName}. Connecting you to a mentor now.</Say>
   <Dial timeout="30" answerOnBridge="true" action="${statusCallbackUrl}" method="POST">
     <Client statusCallbackEvent="initiated ringing answered completed" statusCallback="${statusCallbackUrl}" statusCallbackMethod="POST">${identity}</Client>
   </Dial>

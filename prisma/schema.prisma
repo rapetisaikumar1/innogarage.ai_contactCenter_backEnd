@@ -14,7 +14,7 @@ datasource db {
 
 enum Role {
   ADMIN
-  AGENT
+  MENTOR
   MANAGER
 }
 
@@ -120,7 +120,7 @@ model User {
   name         String
   email        String   @unique
   passwordHash String
-  role         Role     @default(AGENT)
+  role         Role     @default(MENTOR)
   departmentId String?
   canAccessBgc Boolean  @default(false)
   canAccessPaymentHistory Boolean @default(false)

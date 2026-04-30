@@ -31,13 +31,13 @@ export const createUserSchema = z.object({
     .min(8)
     .regex(/[A-Z]/, 'Must contain an uppercase letter')
     .regex(/[0-9]/, 'Must contain a number'),
-  role: z.enum(['ADMIN', 'MANAGER', 'AGENT']).default('AGENT'),
+  role: z.enum(['ADMIN', 'MANAGER', 'MENTOR']).default('MENTOR'),
   departmentId: z.string().min(1).optional().nullable(),
   canAccessBgc: z.boolean().default(false),
   canAccessPaymentHistory: z.boolean().default(false),
   canAccessMentors: z.boolean().default(false),
 }).superRefine((data, ctx) => {
-  if (data.role === 'AGENT' && !data.departmentId) {
+  if (data.role === 'MENTOR' && !data.departmentId) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['departmentId'],
@@ -51,7 +51,7 @@ export type CreateUserInput = z.infer<typeof createUserSchema>;
 // ─── Update another user (ADMIN only) ────────────────────────────────────────
 export const updateUserSchema = z.object({
   name: z.string().min(2).max(100).optional(),
-  role: z.enum(['ADMIN', 'MANAGER', 'AGENT']).optional(),
+  role: z.enum(['ADMIN', 'MANAGER', 'MENTOR']).optional(),
   isActive: z.boolean().optional(),
 }).refine((d) => d.name !== undefined || d.role !== undefined || d.isActive !== undefined, {
   message: 'Provide at least one field to update',

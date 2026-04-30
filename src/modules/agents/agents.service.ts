@@ -27,7 +27,7 @@ export interface AgentCandidateDTO {
 // ─── List all agents with availability and assigned conversation count ─────────
 export async function listAgents(): Promise<AgentDTO[]> {
   const users = await prisma.user.findMany({
-    where: { isActive: true, role: 'AGENT' },
+    where: { isActive: true, role: 'MENTOR' },
     select: {
       id: true,
       name: true,

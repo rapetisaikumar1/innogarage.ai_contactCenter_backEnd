@@ -136,7 +136,7 @@ export async function handleCreateTransferRequest(req: Request, res: Response): 
       toAgentId,
       'TRANSFER_REQUEST',
       'Transfer Request',
-      `${requester?.name ?? 'An agent'} wants to transfer candidate ${candidateName} to you.`,
+      `${requester?.name ?? 'A mentor'} wants to transfer candidate ${candidateName} to you.`,
       { candidateId: req.params.id, requestId: request.id },
     );
 
@@ -158,7 +158,7 @@ export async function handleRespondToTransferRequest(req: Request, res: Response
     const updated = await respondToTransferRequest(req.params.requestId, req.user!.userId, action);
     const candidateName = (updated as { candidate?: { fullName: string } }).candidate?.fullName ?? 'Unknown';
     const responder = await prisma.user.findUnique({ where: { id: req.user!.userId }, select: { name: true } });
-    const responderName = responder?.name ?? 'Agent';
+    const responderName = responder?.name ?? 'Mentor';
 
     if (action === 'accept') {
       await createAgentNotification(

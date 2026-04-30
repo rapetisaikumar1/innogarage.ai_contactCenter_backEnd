@@ -58,7 +58,7 @@ export async function listCandidates(query: ListCandidatesQuery, userId: string,
   // Agents see candidates they are explicitly assigned to (CandidateAssignment)
   // OR whose active WhatsApp conversation is assigned to them.
   // This handles auto-created WhatsApp candidates that never got a CandidateAssignment.
-  if (userRole === 'AGENT' || assignedToMe) {
+  if (userRole === 'MENTOR' || assignedToMe) {
     andConditions.push({
       OR: [
         { assignments: { some: { userId } } },
@@ -93,7 +93,7 @@ export async function listCandidates(query: ListCandidatesQuery, userId: string,
 
 export async function getCandidateById(id: string, userId?: string, userRole?: string) {
   // Agents may only access candidates assigned to them
-  if (userRole === 'AGENT' && userId) {
+  if (userRole === 'MENTOR' && userId) {
     const owned = await prisma.candidate.findFirst({
       where: {
         id,
@@ -350,7 +350,7 @@ export async function createTransferRequest(
     where: { id: toAgentId },
     select: { id: true, role: true, isActive: true, departmentId: true },
   });
-  if (!targetAgent || targetAgent.role !== 'AGENT' || !targetAgent.isActive) {
+  if (!targetAgent || targetAgent.role !== 'MENTOR' || !targetAgent.isActive) {
     throw new Error('Selected mentor is not available');
   }
   if (departmentId && targetAgent.departmentId !== departmentId) {

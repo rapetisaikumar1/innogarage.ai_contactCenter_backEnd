@@ -14,7 +14,7 @@ export function authorizePortalAccess(access: PortalAccess) {
       return next();
     }
 
-    if (req.user.role !== 'AGENT') {
+    if (req.user.role !== 'MENTOR') {
       return sendError(res, 403, 'Forbidden');
     }
 
@@ -32,7 +32,7 @@ export function authorizePortalAccess(access: PortalAccess) {
       return sendError(res, 401, 'Authentication required');
     }
 
-    if (user.role !== 'AGENT') {
+    if (user.role !== 'MENTOR') {
       return sendError(res, 403, 'Forbidden');
     }
 

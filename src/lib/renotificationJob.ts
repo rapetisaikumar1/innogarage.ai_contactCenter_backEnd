@@ -69,7 +69,7 @@ async function runRenotificationJob(): Promise<void> {
         const title = isHighPriority
           ? `🔴 HIGH PRIORITY: Unassigned conversation`
           : `⏰ Reminder: Unassigned conversation`;
-        const body = `${conv.candidate.fullName} is still waiting for an agent (${newCycleCount} reminder${newCycleCount > 1 ? 's' : ''})`;
+        const body = `${conv.candidate.fullName} is still waiting for a mentor (${newCycleCount} reminder${newCycleCount > 1 ? 's' : ''})`;
 
         // Clear old unread notifications first so fresh ones are created
         await prisma.notification.updateMany({

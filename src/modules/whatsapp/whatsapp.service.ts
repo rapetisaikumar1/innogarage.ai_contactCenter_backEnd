@@ -147,7 +147,7 @@ export async function sendMessage(
   if (!candidate) throw new Error('Candidate not found');
 
   // Access control: agents can only send to their assigned conversations
-  if (senderRole === 'AGENT') {
+  if (senderRole === 'MENTOR') {
     const conversation = await prisma.conversation.findUnique({
       where: { candidateId: input.candidateId },
     });
@@ -250,7 +250,7 @@ export async function listCandidateMessages(
   requestingRole: string
 ): Promise<{ messages: MessageDTO[]; total: number }> {
   // Access control
-  if (requestingRole === 'AGENT') {
+  if (requestingRole === 'MENTOR') {
     const conversation = await prisma.conversation.findUnique({ where: { candidateId } });
     if (!conversation || conversation.assignedAgentId !== requestingUserId) {
       throw new Error('Access denied');

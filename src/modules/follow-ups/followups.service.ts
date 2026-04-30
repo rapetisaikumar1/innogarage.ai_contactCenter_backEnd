@@ -33,7 +33,7 @@ export async function listFollowUps(query: ListFollowUpsQuery, userId: string, u
   const where: Prisma.FollowUpWhereInput = {};
 
   // Agents only see their own follow-ups
-  if (userRole === 'AGENT') {
+  if (userRole === 'MENTOR') {
     where.userId = userId;
   }
 

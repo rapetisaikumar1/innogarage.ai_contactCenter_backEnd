@@ -83,7 +83,7 @@ interface VoiceSessionRecord {
 interface CandidateOwner {
   id: string;
   name: string;
-  role: 'ADMIN' | 'AGENT' | 'MANAGER';
+  role: 'ADMIN' | 'MENTOR' | 'MANAGER';
   isActive: boolean;
   availability: 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE';
   voiceStatus: 'IDLE' | 'IN_CALL';
@@ -202,7 +202,7 @@ async function getEligibleInboundAgents(): Promise<Array<{ id: string; name: str
   return prisma.user.findMany({
     where: {
       isActive: true,
-      role: 'AGENT',
+      role: 'MENTOR',
       availability: 'AVAILABLE',
       voiceStatus: 'IDLE',
     },
@@ -214,7 +214,7 @@ async function getEligibleInboundAgents(): Promise<Array<{ id: string; name: str
 function isEligibleVoiceOwner(owner: CandidateOwner | null): owner is CandidateOwner {
   return Boolean(
     owner &&
-      owner.role === 'AGENT' &&
+      owner.role === 'MENTOR' &&
       owner.isActive &&
       owner.availability === 'AVAILABLE' &&
       owner.voiceStatus === 'IDLE',
@@ -769,7 +769,7 @@ export async function claimIncomingVoiceSession(params: {
     const agentUpdate = await tx.user.updateMany({
       where: {
         id: params.agentId,
-        role: 'AGENT',
+        role: 'MENTOR',
         isActive: true,
         availability: 'AVAILABLE',
         voiceStatus: 'IDLE',
@@ -778,7 +778,7 @@ export async function claimIncomingVoiceSession(params: {
     });
 
     if (agentUpdate.count === 0) {
-      throw new Error('Agent is not available to receive a new call');
+      throw new Error('Mentor is not available to receive a new call');
     }
 
     const claimResult = await tx.voiceSession.updateMany({
@@ -982,7 +982,7 @@ export async function registerBrowserOutboundCall(params: {
     select: { role: true, availability: true, voiceStatus: true, isActive: true },
   });
   if (!user || !user.isActive || user.availability !== 'AVAILABLE' || user.voiceStatus !== 'IDLE') {
-    throw new Error('Agent is not available to place a new call');
+    throw new Error('Mentor is not available to place a new call');
   }
   await assertOutboundCallAllowed(candidate.id, params.userId, user.role);
 
@@ -1015,7 +1015,7 @@ export async function initiateOutboundCall(params: {
     select: { availability: true, voiceStatus: true, isActive: true },
   });
   if (!user || !user.isActive || user.availability !== 'AVAILABLE' || user.voiceStatus !== 'IDLE') {
-    throw new Error('Agent is not available to place a new call');
+    throw new Error('Mentor is not available to place a new call');
   }
 
   const toNumber = candidate.phoneNumber ?? candidate.whatsappNumber;

@@ -57,21 +57,21 @@ async function main() {
     },
   });
 
-  const agent = await prisma.user.upsert({
-    where: { email: 'agent@contactcenter.com' },
+  const mentor = await prisma.user.upsert({
+    where: { email: 'mentor@contactcenter.com' },
     update: {},
     create: {
-      name: 'Test Agent',
-      email: 'agent@contactcenter.com',
-      passwordHash: await bcrypt.hash('Agent@1234', 12),
-      role: 'AGENT',
+      name: 'Test Mentor',
+      email: 'mentor@contactcenter.com',
+      passwordHash: await bcrypt.hash('Mentor@1234', 12),
+      role: 'MENTOR',
       isActive: true,
     },
   });
 
   console.log('Seeded users:');
   console.log(' Admin:', admin.email);
-  console.log(' Agent:', agent.email);
+  console.log(' Mentor:', mentor.email);
 
   for (const technology of AVAILABLE_TECHNOLOGIES) {
     await prisma.availableTechnology.upsert({

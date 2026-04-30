@@ -48,9 +48,9 @@ router.post('/:id/assign', authorize('ADMIN', 'MANAGER'), handleAssign);
 router.get('/:id/transfer-request/pending', handleGetPendingTransfer);
 
 // POST /api/candidates/:id/transfer-request – agent creates a transfer request
-router.post('/:id/transfer-request', authorize('AGENT'), handleCreateTransferRequest);
+router.post('/:id/transfer-request', authorize('MENTOR'), handleCreateTransferRequest);
 
 // PATCH /api/candidates/:id/transfer-request/:requestId/respond – agent accepts/rejects
-router.patch('/:id/transfer-request/:requestId/respond', authorize('AGENT'), handleRespondToTransferRequest);
+router.patch('/:id/transfer-request/:requestId/respond', authorize('MENTOR'), handleRespondToTransferRequest);
 
 export default router;

@@ -37,7 +37,7 @@ async function validateAssignableAgent(agentId: string, departmentId?: string | 
     select: { id: true, role: true, isActive: true, departmentId: true },
   });
 
-  if (!agent || agent.role !== 'AGENT' || !agent.isActive) return 'invalid_agent';
+  if (!agent || agent.role !== 'MENTOR' || !agent.isActive) return 'invalid_agent';
   if (departmentId && agent.departmentId !== departmentId) return 'department_mismatch';
   return null;
 }

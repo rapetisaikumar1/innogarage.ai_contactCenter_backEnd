@@ -132,7 +132,7 @@ export async function createUser(input: CreateUserInput): Promise<UserDTO> {
   const existing = await prisma.user.findUnique({ where: { email: input.email }, select: { id: true } });
   if (existing) throw Object.assign(new Error('Email is already in use'), { statusCode: 409 });
 
-  const isMentor = input.role === 'AGENT';
+  const isMentor = input.role === 'MENTOR';
 
   if (isMentor) {
     const department = await prisma.department.findUnique({
@@ -174,7 +174,7 @@ export async function updateUser(targetUserId: string, input: UpdateUserInput): 
     data: {
       ...(input.name !== undefined && { name: input.name }),
       ...(input.role !== undefined && { role: input.role }),
-      ...(input.role !== undefined && input.role !== 'AGENT' && {
+      ...(input.role !== undefined && input.role !== 'MENTOR' && {
         departmentId: null,
         canAccessBgc: false,
         canAccessPaymentHistory: false,
