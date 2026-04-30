@@ -1,11 +1,20 @@
 import { prisma } from '../../lib/prisma';
 import { emitToAll, emitToUsers } from '../../lib/socket';
 import { clearNotificationsForUsers } from '../../lib/notifications';
+import { createAgentNotification } from '../../lib/agentNotifications';
 import { logger } from '../../lib/logger';
+
+type AssignFailureReason = 'already_assigned' | 'not_found' | 'closed' | 'invalid_agent' | 'department_mismatch';
+
+interface AssignmentOptions {
+  performedByUserId?: string;
+  departmentId?: string | null;
+  notifyAssignee?: boolean;
+}
 
 export type AssignResult =
   | { ok: true; conversation: ConversationView }
-  | { ok: false; reason: 'already_assigned' | 'not_found' | 'closed' };
+  | { ok: false; reason: AssignFailureReason };
 
 export interface ConversationView {
   id: string;
@@ -16,12 +25,54 @@ export interface ConversationView {
   isHighPriority: boolean;
 }
 
+function httpError(message: string, statusCode: number): Error & { statusCode: number } {
+  const error = new Error(message) as Error & { statusCode: number };
+  error.statusCode = statusCode;
+  return error;
+}
+
+async function validateAssignableAgent(agentId: string, departmentId?: string | null): Promise<AssignFailureReason | null> {
+  const agent = await prisma.user.findUnique({
+    where: { id: agentId },
+    select: { id: true, role: true, isActive: true, departmentId: true },
+  });
+
+  if (!agent || agent.role !== 'AGENT' || !agent.isActive) return 'invalid_agent';
+  if (departmentId && agent.departmentId !== departmentId) return 'department_mismatch';
+  return null;
+}
+
+async function notifyAssignedAgent(params: {
+  agentId: string;
+  performedByUserId: string;
+  conversationId: string;
+  candidateId: string;
+  candidateName: string;
+}): Promise<void> {
+  if (params.agentId === params.performedByUserId) return;
+
+  const assigner = await prisma.user.findUnique({
+    where: { id: params.performedByUserId },
+    select: { name: true },
+  });
+
+  await createAgentNotification(
+    params.agentId,
+    'CANDIDATE_ASSIGNED',
+    'Candidate Assigned',
+    `You have been assigned candidate ${params.candidateName} by ${assigner?.name ?? 'Admin'}.`,
+    { candidateId: params.candidateId, conversationId: params.conversationId },
+  );
+}
+
 // ─── Assign conversation to requesting agent (first-wins, atomic) ─────────────
 export async function assignConversation(
   conversationId: string,
-  agentId: string
+  agentId: string,
+  options: AssignmentOptions = {}
 ): Promise<AssignResult> {
   let result: AssignResult = { ok: false, reason: 'not_found' };
+  const performedByUserId = options.performedByUserId ?? agentId;
 
   // Read current state first
   const conv = await prisma.conversation.findUnique({ where: { id: conversationId } });
@@ -29,6 +80,9 @@ export async function assignConversation(
   if (!conv) return { ok: false, reason: 'not_found' };
   if (conv.status === 'CLOSED') return { ok: false, reason: 'closed' };
   if (conv.status === 'ASSIGNED') return { ok: false, reason: 'already_assigned' };
+
+  const validationError = await validateAssignableAgent(agentId, options.departmentId);
+  if (validationError) return { ok: false, reason: validationError };
 
   // Atomic update: only succeeds if status is still UNASSIGNED
   // Uses updateMany with a where-guard — 0 rows updated = someone else got it first
@@ -61,7 +115,7 @@ export async function assignConversation(
       data: {
         conversationId,
         action: 'ASSIGNED',
-        performedByUserId: agentId,
+        performedByUserId,
         newAgentId: agentId,
       },
     }),
@@ -69,7 +123,7 @@ export async function assignConversation(
       where: { candidateId: updated!.candidateId },
     }),
     prisma.candidateAssignment.create({
-      data: { candidateId: updated!.candidateId, userId: agentId, assignedById: agentId },
+      data: { candidateId: updated!.candidateId, userId: agentId, assignedById: performedByUserId },
     }),
   ]);
 
@@ -110,7 +164,17 @@ export async function assignConversation(
   // ── Emit: remove from inbox for everyone except assigned agent + admins ───
   emitToUsers(otherUserIds, 'conversation:removed_from_inbox', { conversationId });
 
-  logger.info({ conversationId, agentId }, 'Conversation assigned');
+  if (options.notifyAssignee && updated?.candidate) {
+    await notifyAssignedAgent({
+      agentId,
+      performedByUserId,
+      conversationId,
+      candidateId: updated.candidate.id,
+      candidateName: updated.candidate.fullName,
+    });
+  }
+
+  logger.info({ conversationId, agentId, performedByUserId }, 'Conversation assigned');
   return result;
 }
 
@@ -118,11 +182,16 @@ export async function assignConversation(
 export async function reassignConversation(
   conversationId: string,
   newAgentId: string,
-  performedByUserId: string
+  performedByUserId: string,
+  options: Pick<AssignmentOptions, 'departmentId' | 'notifyAssignee'> = {}
 ): Promise<ConversationView> {
   const conv = await prisma.conversation.findUnique({ where: { id: conversationId } });
   if (!conv) throw new Error('Conversation not found');
   if (conv.status === 'CLOSED') throw new Error('Cannot reassign a closed conversation');
+
+  const validationError = await validateAssignableAgent(newAgentId, options.departmentId);
+  if (validationError === 'invalid_agent') throw httpError('Selected mentor is not available', 422);
+  if (validationError === 'department_mismatch') throw httpError('Selected mentor does not belong to the selected department', 422);
 
   const previousAgentId = conv.assignedAgentId;
 
@@ -135,7 +204,10 @@ export async function reassignConversation(
         assignedAgentId: newAgentId,
         assignedAt: new Date(),
       },
-      include: { assignedAgent: { select: { id: true, name: true } } },
+      include: {
+        assignedAgent: { select: { id: true, name: true } },
+        candidate: { select: { id: true, fullName: true } },
+      },
     });
 
     await tx.conversationAssignmentLog.create({
@@ -176,6 +248,16 @@ export async function reassignConversation(
     assignedAgentId: newAgentId,
     assignedAgentName: updated.assignedAgent?.name ?? null,
   });
+
+  if (options.notifyAssignee) {
+    await notifyAssignedAgent({
+      agentId: newAgentId,
+      performedByUserId,
+      conversationId,
+      candidateId: updated.candidate.id,
+      candidateName: updated.candidate.fullName,
+    });
+  }
 
   return {
     id: updated.id,

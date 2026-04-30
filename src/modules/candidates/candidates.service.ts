@@ -268,7 +268,7 @@ export async function assignCandidate(candidateId: string, assignToUserId: strin
     const { assignConversation, reassignConversation } = await import('../whatsapp/whatsapp.assignment.service');
 
     if (existing.conversation.status === 'UNASSIGNED') {
-      const result = await assignConversation(existing.conversation.id, assignToUserId);
+      const result = await assignConversation(existing.conversation.id, assignToUserId, { performedByUserId: assignedById });
       if (!result.ok) {
         if (result.reason === 'already_assigned') {
           await reassignConversation(existing.conversation.id, assignToUserId, assignedById);
@@ -332,6 +332,7 @@ export async function createTransferRequest(
   candidateId: string,
   fromAgentId: string,
   toAgentId: string,
+  departmentId?: string | null,
 ) {
   // Ensure no PENDING request already exists
   const existing = await prisma.candidateTransferRequest.findFirst({
@@ -344,6 +345,17 @@ export async function createTransferRequest(
     where: { candidateId, userId: fromAgentId },
   });
   if (!assignment) throw new Error('You are not assigned to this candidate');
+
+  const targetAgent = await prisma.user.findUnique({
+    where: { id: toAgentId },
+    select: { id: true, role: true, isActive: true, departmentId: true },
+  });
+  if (!targetAgent || targetAgent.role !== 'AGENT' || !targetAgent.isActive) {
+    throw new Error('Selected mentor is not available');
+  }
+  if (departmentId && targetAgent.departmentId !== departmentId) {
+    throw new Error('Selected mentor does not belong to the selected department');
+  }
 
   const request = await prisma.candidateTransferRequest.create({
     data: { candidateId, fromAgentId, toAgentId },

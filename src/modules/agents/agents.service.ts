@@ -5,6 +5,8 @@ export interface AgentDTO {
   name: string;
   email: string;
   role: string;
+  departmentId: string | null;
+  department: { id: string; name: string } | null;
   isActive: boolean;
   availability: 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE';
   voiceStatus: 'IDLE' | 'IN_CALL';
@@ -31,6 +33,8 @@ export async function listAgents(): Promise<AgentDTO[]> {
       name: true,
       email: true,
       role: true,
+      departmentId: true,
+      department: { select: { id: true, name: true } },
       isActive: true,
       availability: true,
       voiceStatus: true,
@@ -48,6 +52,8 @@ export async function listAgents(): Promise<AgentDTO[]> {
     name: u.name,
     email: u.email,
     role: u.role,
+    departmentId: u.departmentId,
+    department: u.department,
     isActive: u.isActive,
     availability: (u.voiceStatus === 'IN_CALL' ? 'BUSY' : (u.availability ?? 'OFFLINE')) as 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE',
     voiceStatus: (u.voiceStatus ?? 'IDLE') as 'IDLE' | 'IN_CALL',
@@ -102,6 +108,8 @@ export async function updateAgentAvailability(
       name: true,
       email: true,
       role: true,
+      departmentId: true,
+      department: { select: { id: true, name: true } },
       isActive: true,
       availability: true,
       voiceStatus: true,
@@ -114,6 +122,8 @@ export async function updateAgentAvailability(
     name: updated.name,
     email: updated.email,
     role: updated.role,
+    departmentId: updated.departmentId,
+    department: updated.department,
     isActive: updated.isActive,
     availability: (updated.voiceStatus === 'IN_CALL' ? 'BUSY' : (updated.availability ?? 'OFFLINE')) as 'AVAILABLE' | 'BUSY' | 'AWAY' | 'OFFLINE',
     voiceStatus: (updated.voiceStatus ?? 'IDLE') as 'IDLE' | 'IN_CALL',

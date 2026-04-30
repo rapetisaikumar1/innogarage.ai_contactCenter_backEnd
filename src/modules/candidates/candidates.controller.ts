@@ -122,12 +122,12 @@ export async function handleGetPendingTransfer(req: Request, res: Response): Pro
 
 export async function handleCreateTransferRequest(req: Request, res: Response): Promise<void> {
   try {
-    const { toAgentId } = req.body;
+    const { toAgentId, departmentId } = req.body as { toAgentId?: string; departmentId?: string | null };
     if (!toAgentId) {
       sendError(res, 422, 'toAgentId is required');
       return;
     }
-    const request = await createTransferRequest(req.params.id, req.user!.userId, toAgentId);
+    const request = await createTransferRequest(req.params.id, req.user!.userId, toAgentId, departmentId ?? null);
 
     // Notify the target agent
     const requester = await prisma.user.findUnique({ where: { id: req.user!.userId }, select: { name: true } });

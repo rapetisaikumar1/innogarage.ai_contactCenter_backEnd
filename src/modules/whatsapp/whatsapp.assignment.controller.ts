@@ -24,9 +24,29 @@ export async function handleMarkConversationRead(req: Request, res: Response, ne
 // POST /api/whatsapp/conversations/:id/assign  — any authenticated user
 export async function handleAssign(req: Request, res: Response, next: NextFunction) {
   try {
-    const result = await assignConversation(req.params.id, req.user!.userId);
+    const { agentId, newAgentId, departmentId } = req.body as {
+      agentId?: string;
+      newAgentId?: string;
+      departmentId?: string | null;
+    };
+    const targetAgentId = agentId ?? newAgentId ?? req.user!.userId;
+    const assigningAnotherUser = targetAgentId !== req.user!.userId;
+
+    if (assigningAnotherUser && req.user!.role !== 'ADMIN' && req.user!.role !== 'MANAGER') {
+      return sendError(res, 403, 'Only admins and managers can assign conversations to another mentor');
+    }
+
+    const result = await assignConversation(req.params.id, targetAgentId, {
+      performedByUserId: req.user!.userId,
+      departmentId: departmentId ?? null,
+      notifyAssignee: assigningAnotherUser,
+    });
     if (!result.ok) {
-      const statusCode = result.reason === 'already_assigned' ? 409 : 404;
+      const statusCode = result.reason === 'already_assigned' || result.reason === 'closed'
+        ? 409
+        : result.reason === 'invalid_agent' || result.reason === 'department_mismatch'
+          ? 422
+          : 404;
       return sendError(res, statusCode, result.reason);
     }
     sendSuccess(res, result.conversation);
@@ -38,9 +58,12 @@ export async function handleAssign(req: Request, res: Response, next: NextFuncti
 // POST /api/whatsapp/conversations/:id/reassign  — admin only
 export async function handleReassign(req: Request, res: Response, next: NextFunction) {
   try {
-    const { newAgentId } = req.body as { newAgentId?: string };
+    const { newAgentId, departmentId } = req.body as { newAgentId?: string; departmentId?: string | null };
     if (!newAgentId) return sendError(res, 422, 'newAgentId is required');
-    const result = await reassignConversation(req.params.id, newAgentId, req.user!.userId);
+    const result = await reassignConversation(req.params.id, newAgentId, req.user!.userId, {
+      departmentId: departmentId ?? null,
+      notifyAssignee: true,
+    });
     sendSuccess(res, result);
   } catch (err) {
     next(err);
