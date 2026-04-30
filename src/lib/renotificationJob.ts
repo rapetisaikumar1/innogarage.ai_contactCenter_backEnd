@@ -5,12 +5,13 @@ import { logger } from './logger';
 
 const RENOTIFY_INTERVAL_MS = 15 * 60 * 1000;       // 15 minutes
 const HIGH_PRIORITY_CYCLES  = 2;                     // mark high priority after 2 cycles
-const JOB_POLL_INTERVAL_MS  = 5 * 60 * 1000;        // check every 5 minutes
+const JOB_POLL_INTERVAL_MS  = 60 * 1000;            // check every minute
 
 let jobTimer: NodeJS.Timeout | null = null;
 
 export function startRenotificationJob(): void {
-  logger.info('Re-notification job started (poll every 5 min)');
+  logger.info('Re-notification job started (poll every 1 min)');
+  void runRenotificationJob();
   jobTimer = setInterval(runRenotificationJob, JOB_POLL_INTERVAL_MS);
 }
 
@@ -71,11 +72,12 @@ async function runRenotificationJob(): Promise<void> {
           : `⏰ Reminder: Unassigned conversation`;
         const body = `${conv.candidate.fullName} is still waiting for a mentor (${newCycleCount} reminder${newCycleCount > 1 ? 's' : ''})`;
 
-        // Clear old unread notifications first so fresh ones are created
+        // Clear old active reminders first so the fresh reminder replaces them
         await prisma.notification.updateMany({
-          where: { conversationId: conv.id, isRead: false, clearedAt: null },
+          where: { conversationId: conv.id, clearedAt: null },
           data: { clearedAt: new Date() },
         });
+        emitToAll('notifications:cleared', { conversationId: conv.id });
 
         await notifyUsers({
           userIds: allUserIds,
