@@ -27,10 +27,13 @@ export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE;
 
 export interface UploadedFileResult {
   id: string;
+  candidateId: string;
+  uploadedById: string;
   originalName: string;
   mimeType: string;
   size: number;
   url: string;
+  viewUrl?: string;
   publicId: string;
   createdAt: Date;
   uploadedBy: { id: string; name: string };

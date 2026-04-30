@@ -20,10 +20,10 @@ import paymentHistoryRoutes from '../modules/payment-history/paymentHistory.rout
 const router = Router();
 
 router.use('/auth', authRoutes);
+router.use('/candidates/:candidateId/files', uploadRoutes);
 router.use('/candidates', candidateRoutes);
 router.use('/candidates/:candidateId/notes', noteRoutes);
 router.use('/candidates/:candidateId/follow-ups', followUpNestedRoutes);
-router.use('/candidates/:candidateId/files', uploadRoutes);
 router.use('/candidates/:candidateId/calls', callNestedRoutes);
 router.use('/follow-ups', followUpRoutes);
 router.use('/whatsapp', whatsappRoutes);

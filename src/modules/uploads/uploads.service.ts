@@ -1,17 +1,132 @@
+import crypto from 'crypto';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { uploadToCloudinary, deleteFromCloudinary, getCloudinaryDeliveryResourceType } from '../../lib/cloudinary';
+import {
+  uploadToCloudinary,
+  deleteFromCloudinary,
+  getCloudinaryDeliveryResourceType,
+  getCloudinaryFormat,
+  getCloudinaryPrivateDownloadUrl,
+} from '../../lib/cloudinary';
+import { env } from '../../config/env';
 import { logger } from '../../lib/logger';
 import { UploadedFileResult } from './uploads.types';
+
+interface CandidateFileViewTokenPayload {
+  candidateId: string;
+  publicId: string;
+  mimeType: string;
+  originalName: string;
+  exp: number;
+}
+
+const UPLOADED_FILE_INCLUDE = {
+  uploadedBy: { select: { id: true, name: true } },
+} as const satisfies Prisma.CandidateFileInclude;
+
+type CandidateFileWithUploader = Prisma.CandidateFileGetPayload<{ include: typeof UPLOADED_FILE_INCLUDE }>;
+
+const CANDIDATE_FILE_VIEW_TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
+
+function signTokenBody(body: string): string {
+  return crypto.createHmac('sha256', env.JWT_SECRET).update(body).digest('base64url');
+}
+
+function createCandidateFileViewToken(file: Pick<UploadedFileResult, 'candidateId' | 'publicId' | 'mimeType' | 'originalName'>): string {
+  const payload: CandidateFileViewTokenPayload = {
+    candidateId: file.candidateId,
+    publicId: file.publicId,
+    mimeType: file.mimeType,
+    originalName: file.originalName,
+    exp: Date.now() + CANDIDATE_FILE_VIEW_TOKEN_TTL_MS,
+  };
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `${body}.${signTokenBody(body)}`;
+}
+
+function verifyCandidateFileViewToken(candidateId: string, token: string): CandidateFileViewTokenPayload | null {
+  const [body, signature] = token.split('.');
+
+  if (!body || !signature) {
+    return null;
+  }
+
+  const expectedSignature = signTokenBody(body);
+  const signatureBuffer = Buffer.from(signature);
+  const expectedSignatureBuffer = Buffer.from(expectedSignature);
+
+  if (
+    signatureBuffer.length !== expectedSignatureBuffer.length ||
+    !crypto.timingSafeEqual(signatureBuffer, expectedSignatureBuffer)
+  ) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as CandidateFileViewTokenPayload;
+
+    if (
+      payload.candidateId !== candidateId ||
+      !payload.publicId ||
+      !payload.mimeType ||
+      !payload.originalName ||
+      !Number.isFinite(payload.exp) ||
+      Date.now() > payload.exp
+    ) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function getSafeUploadedFileName(file: Pick<UploadedFileResult, 'originalName' | 'mimeType'>): string {
+  const fallbackExtension = getCloudinaryFormat(file.mimeType, file.originalName);
+  const cleanedName = file.originalName.trim().replace(/[\\/:*?"<>|]/g, '-');
+  const fileName = cleanedName || `file.${fallbackExtension}`;
+
+  return fileName.includes('.') ? fileName : `${fileName}.${fallbackExtension}`;
+}
+
+function buildCandidateFileViewUrl(file: Pick<UploadedFileResult, 'candidateId' | 'publicId' | 'mimeType' | 'originalName'>): string {
+  const token = createCandidateFileViewToken(file);
+  const fileName = encodeURIComponent(getSafeUploadedFileName(file));
+  return `/api/candidates/${file.candidateId}/files/view/${token}/${fileName}`;
+}
+
+function toUploadedFileResult(file: CandidateFileWithUploader): UploadedFileResult {
+  return {
+    ...file,
+    viewUrl: buildCandidateFileViewUrl(file),
+  };
+}
+
+export function getCandidateFileDownload(
+  candidateId: string,
+  token: string,
+): { downloadUrl: string; mimeType: string; originalName: string } | null {
+  const payload = verifyCandidateFileViewToken(candidateId, token);
+
+  if (!payload) {
+    return null;
+  }
+
+  return {
+    downloadUrl: getCloudinaryPrivateDownloadUrl(payload.publicId, payload.mimeType, payload.originalName),
+    mimeType: payload.mimeType,
+    originalName: getSafeUploadedFileName(payload),
+  };
+}
 
 export async function listFiles(candidateId: string): Promise<UploadedFileResult[]> {
   const files = await prisma.candidateFile.findMany({
     where: { candidateId },
     orderBy: { createdAt: 'desc' },
-    include: {
-      uploadedBy: { select: { id: true, name: true } },
-    },
+    include: UPLOADED_FILE_INCLUDE,
   });
-  return files;
+  return files.map(toUploadedFileResult);
 }
 
 export async function uploadFile(
@@ -40,9 +155,7 @@ export async function uploadFile(
       url,
       publicId,
     },
-    include: {
-      uploadedBy: { select: { id: true, name: true } },
-    },
+    include: UPLOADED_FILE_INCLUDE,
   });
 
   await prisma.auditLog.create({
@@ -56,7 +169,7 @@ export async function uploadFile(
   });
 
   logger.info({ fileId: file.id, candidateId, originalName }, 'File uploaded');
-  return file;
+  return toUploadedFileResult(file);
 }
 
 export async function deleteFile(

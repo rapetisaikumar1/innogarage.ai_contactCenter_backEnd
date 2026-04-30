@@ -1,7 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import { sendSuccess, sendError } from '../../utils/response';
-import { listFiles, uploadFile, deleteFile } from './uploads.service';
+import { listFiles, uploadFile, deleteFile, getCandidateFileDownload } from './uploads.service';
 import { fileUploadSchema } from './uploads.types';
+
+function getInlineContentDisposition(fileName: string): string {
+  const asciiFileName = fileName.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+  return `inline; filename="${asciiFileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
 
 export async function handleList(req: Request, res: Response, next: NextFunction) {
   try {
@@ -46,6 +51,34 @@ export async function handleUpload(req: Request, res: Response, next: NextFuncti
     );
 
     sendSuccess(res, file, 201);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function handleView(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { candidateId, token } = req.params;
+    const fileDownload = getCandidateFileDownload(candidateId, token);
+
+    if (!fileDownload) {
+      return sendError(res, 404, 'File link is invalid or expired');
+    }
+
+    const cloudinaryResponse = await fetch(fileDownload.downloadUrl);
+
+    if (!cloudinaryResponse.ok) {
+      return sendError(res, 502, 'File could not be loaded from storage');
+    }
+
+    const fileBuffer = Buffer.from(await cloudinaryResponse.arrayBuffer());
+
+    res.setHeader('Content-Type', fileDownload.mimeType);
+    res.setHeader('Content-Disposition', getInlineContentDisposition(fileDownload.originalName));
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length, Content-Type');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(fileBuffer);
   } catch (err) {
     next(err);
   }

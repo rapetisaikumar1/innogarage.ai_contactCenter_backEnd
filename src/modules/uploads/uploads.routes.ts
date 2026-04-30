@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { authenticate } from '../../middleware/authenticate';
-import { handleList, handleUpload, handleDelete } from './uploads.controller';
+import { handleList, handleUpload, handleDelete, handleView } from './uploads.controller';
 import { MAX_FILE_SIZE_BYTES } from './uploads.types';
 import { sendError } from '../../utils/response';
 
@@ -41,6 +41,9 @@ function multerErrorHandler(err: unknown, _req: Request, res: Response, next: Ne
   }
   next(err);
 }
+
+// GET /api/candidates/:candidateId/files/view/:token/:filename
+router.get('/view/:token/:filename', handleView);
 
 router.use(authenticate);
 
