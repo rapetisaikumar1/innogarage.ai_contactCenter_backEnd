@@ -40,6 +40,7 @@ export interface BgcDocumentDTO {
   mimeType: string;
   size: number;
   url: string;
+  viewUrl?: string;
   publicId: string;
   uploadedAt: string;
 }

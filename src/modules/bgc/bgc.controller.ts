@@ -1,8 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { sendError, sendSuccess } from '../../utils/response';
 import { parseMonthYearFilter } from '../../utils/monthYearFilter';
-import { createBgcRecord, getBgcRecord, listBgcRecords, updateBgcRecord } from './bgc.service';
+import { createBgcRecord, getBgcDocumentDownload, getBgcRecord, listBgcRecords, updateBgcRecord } from './bgc.service';
 import { BGC_DOCUMENT_FIELDS, BGC_DOCUMENT_FIELD_LABELS, BgcDocumentField, createBgcRecordSchema } from './bgc.types';
+
+function getInlineContentDisposition(fileName: string): string {
+  const asciiFileName = fileName.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+  return `inline; filename="${asciiFileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
 
 function getUploadedFiles(req: Request): Partial<Record<BgcDocumentField, Express.Multer.File[]>> {
   const files = req.files as Partial<Record<BgcDocumentField, Express.Multer.File[]>> | undefined;
@@ -42,6 +47,33 @@ export async function handleGetBgcRecord(req: Request, res: Response, next: Next
     }
 
     sendSuccess(res, record);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function handleViewBgcDocument(req: Request, res: Response, next: NextFunction) {
+  try {
+    const documentDownload = getBgcDocumentDownload(req.params.token);
+
+    if (!documentDownload) {
+      return sendError(res, 404, 'Document link is invalid or expired');
+    }
+
+    const cloudinaryResponse = await fetch(documentDownload.downloadUrl);
+
+    if (!cloudinaryResponse.ok) {
+      return sendError(res, 502, 'Document could not be loaded from storage');
+    }
+
+    const fileBuffer = Buffer.from(await cloudinaryResponse.arrayBuffer());
+
+    res.setHeader('Content-Type', documentDownload.mimeType);
+    res.setHeader('Content-Disposition', getInlineContentDisposition(documentDownload.originalName));
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length, Content-Type');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(fileBuffer);
   } catch (err) {
     next(err);
   }

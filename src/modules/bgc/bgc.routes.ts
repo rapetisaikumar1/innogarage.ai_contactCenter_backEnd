@@ -4,7 +4,7 @@ import { authenticate } from '../../middleware/authenticate';
 import { authorizePortalAccess } from '../../middleware/authorizePortalAccess';
 import { sendError } from '../../utils/response';
 import { ALLOWED_MIME_TYPES_LIST, MAX_FILE_SIZE_BYTES } from '../uploads/uploads.types';
-import { handleCreateBgcRecord, handleGetBgcRecord, handleListBgcRecords, handleUpdateBgcRecord } from './bgc.controller';
+import { handleCreateBgcRecord, handleGetBgcRecord, handleListBgcRecords, handleUpdateBgcRecord, handleViewBgcDocument } from './bgc.controller';
 import { MAX_BGC_FILES_PER_FIELD } from './bgc.types';
 
 const router = Router();
@@ -36,6 +36,8 @@ function multerErrorHandler(err: unknown, _req: Request, res: Response, next: Ne
 
   next(err);
 }
+
+router.get('/documents/:token/:filename', handleViewBgcDocument);
 
 router.use(authenticate, authorizePortalAccess('bgc'));
 

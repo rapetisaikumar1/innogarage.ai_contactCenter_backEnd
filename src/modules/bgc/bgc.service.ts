@@ -1,6 +1,14 @@
+import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { uploadToCloudinary, deleteFromCloudinary } from '../../lib/cloudinary';
+import {
+  uploadToCloudinary,
+  deleteFromCloudinary,
+  getCloudinaryDeliveryResourceType,
+  getCloudinaryFormat,
+  getCloudinaryPrivateDownloadUrl,
+} from '../../lib/cloudinary';
+import { env } from '../../config/env';
 import { buildCreatedAtMonthYearFilter, MonthYearFilter } from '../../utils/monthYearFilter';
 import {
   BGC_DOCUMENT_FIELDS,
@@ -14,20 +22,111 @@ type BgcFileGroups = Partial<Record<BgcDocumentField, Express.Multer.File[]>>;
 type BgcRecordWithCreator = Prisma.BgcRecordGetPayload<{ include: typeof BGC_RECORD_INCLUDE }>;
 type BgcDocumentGroups = Record<BgcDocumentField, BgcDocumentDTO[]>;
 
+interface BgcDocumentViewTokenPayload {
+  publicId: string;
+  mimeType: string;
+  originalName: string;
+  exp: number;
+}
+
 const BGC_RECORD_INCLUDE = {
   createdBy: { select: { id: true, name: true } },
 } as const satisfies Prisma.BgcRecordInclude;
+
+const BGC_DOCUMENT_VIEW_TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
+
+function signTokenBody(body: string): string {
+  return crypto.createHmac('sha256', env.JWT_SECRET).update(body).digest('base64url');
+}
+
+function createBgcDocumentViewToken(document: BgcDocumentDTO): string {
+  const payload: BgcDocumentViewTokenPayload = {
+    publicId: document.publicId,
+    mimeType: document.mimeType,
+    originalName: document.originalName,
+    exp: Date.now() + BGC_DOCUMENT_VIEW_TOKEN_TTL_MS,
+  };
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `${body}.${signTokenBody(body)}`;
+}
+
+function verifyBgcDocumentViewToken(token: string): BgcDocumentViewTokenPayload | null {
+  const [body, signature] = token.split('.');
+
+  if (!body || !signature) {
+    return null;
+  }
+
+  const expectedSignature = signTokenBody(body);
+  const signatureBuffer = Buffer.from(signature);
+  const expectedSignatureBuffer = Buffer.from(expectedSignature);
+
+  if (
+    signatureBuffer.length !== expectedSignatureBuffer.length ||
+    !crypto.timingSafeEqual(signatureBuffer, expectedSignatureBuffer)
+  ) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as BgcDocumentViewTokenPayload;
+
+    if (!payload.publicId || !payload.mimeType || !payload.originalName || Date.now() > payload.exp) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function getSafeDocumentFileName(document: Pick<BgcDocumentDTO, 'originalName' | 'mimeType'>): string {
+  const fallbackExtension = getCloudinaryFormat(document.mimeType, document.originalName);
+  const cleanedName = document.originalName.trim().replace(/[\\/:*?"<>|]/g, '-');
+  const fileName = cleanedName || `document.${fallbackExtension}`;
+
+  return fileName.includes('.') ? fileName : `${fileName}.${fallbackExtension}`;
+}
+
+function buildBgcDocumentViewUrl(document: BgcDocumentDTO): string {
+  const token = createBgcDocumentViewToken(document);
+  const fileName = encodeURIComponent(getSafeDocumentFileName(document));
+  return `/api/bgc/documents/${token}/${fileName}`;
+}
 
 function parseDate(value: string | null): Date | null {
   return value ? new Date(`${value}T00:00:00.000Z`) : null;
 }
 
+function toBgcDocumentDTO(document: BgcDocumentDTO): BgcDocumentDTO {
+  const { viewUrl: _viewUrl, ...storedDocument } = document;
+  return {
+    ...storedDocument,
+    viewUrl: buildBgcDocumentViewUrl(storedDocument),
+  };
+}
+
 function parseDocuments(value: Prisma.JsonValue): BgcDocumentDTO[] {
-  return Array.isArray(value) ? (value as unknown as BgcDocumentDTO[]) : [];
+  return Array.isArray(value) ? (value as unknown as BgcDocumentDTO[]).map(toBgcDocumentDTO) : [];
 }
 
 function toJsonDocuments(documents: BgcDocumentDTO[]): Prisma.InputJsonValue {
-  return documents as unknown as Prisma.InputJsonValue;
+  return documents.map(({ viewUrl: _viewUrl, ...document }) => document) as unknown as Prisma.InputJsonValue;
+}
+
+export function getBgcDocumentDownload(token: string): { downloadUrl: string; mimeType: string; originalName: string } | null {
+  const payload = verifyBgcDocumentViewToken(token);
+
+  if (!payload) {
+    return null;
+  }
+
+  return {
+    downloadUrl: getCloudinaryPrivateDownloadUrl(payload.publicId, payload.mimeType, payload.originalName),
+    mimeType: payload.mimeType,
+    originalName: getSafeDocumentFileName(payload),
+  };
 }
 
 function toBgcRecordDTO(record: BgcRecordWithCreator): BgcRecordDTO {
@@ -76,7 +175,7 @@ async function cleanupUploadedDocuments(groups: Partial<Record<BgcDocumentField,
 
   await Promise.allSettled(
     documents.map((document) => {
-      const resourceType = document.mimeType.startsWith('image/') ? 'image' : 'raw';
+      const resourceType = getCloudinaryDeliveryResourceType(document.mimeType);
       return deleteFromCloudinary(document.publicId, resourceType);
     }),
   );

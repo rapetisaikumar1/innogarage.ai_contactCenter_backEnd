@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma';
-import { uploadToCloudinary, deleteFromCloudinary } from '../../lib/cloudinary';
+import { uploadToCloudinary, deleteFromCloudinary, getCloudinaryDeliveryResourceType } from '../../lib/cloudinary';
 import { logger } from '../../lib/logger';
 import { UploadedFileResult } from './uploads.types';
 
@@ -71,7 +71,7 @@ export async function deleteFile(
   if (file.uploadedById !== userId && userRole !== 'ADMIN') return 'forbidden';
 
   // Determine resource type for Cloudinary
-  const resourceType = file.mimeType.startsWith('image/') ? 'image' : 'raw';
+  const resourceType = getCloudinaryDeliveryResourceType(file.mimeType);
   await deleteFromCloudinary(file.publicId, resourceType);
 
   await prisma.candidateFile.delete({ where: { id: fileId } });

@@ -9,6 +9,45 @@ cloudinary.config({
 
 export { cloudinary };
 
+export type CloudinaryDeliveryResourceType = 'image' | 'raw';
+
+export function getCloudinaryDeliveryResourceType(mimeType: string): CloudinaryDeliveryResourceType {
+  return mimeType.startsWith('image/') || mimeType === 'application/pdf' ? 'image' : 'raw';
+}
+
+export function getCloudinaryFormat(mimeType: string, originalName = ''): string {
+  const extension = originalName.includes('.') ? originalName.split('.').pop()?.toLowerCase() : undefined;
+
+  if (extension) {
+    return extension === 'jpeg' ? 'jpg' : extension;
+  }
+
+  const mimeFormats: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  };
+
+  return mimeFormats[mimeType] ?? 'bin';
+}
+
+export function getCloudinaryPrivateDownloadUrl(
+  publicId: string,
+  mimeType: string,
+  originalName = '',
+): string {
+  return cloudinary.utils.private_download_url(publicId, getCloudinaryFormat(mimeType, originalName), {
+    resource_type: getCloudinaryDeliveryResourceType(mimeType),
+    type: 'upload',
+  });
+}
+
 export async function uploadToCloudinary(
   buffer: Buffer,
   originalName: string,
