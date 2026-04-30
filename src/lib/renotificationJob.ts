@@ -3,7 +3,7 @@ import { notifyUsers } from './notifications';
 import { emitToAll } from './socket';
 import { logger } from './logger';
 
-const RENOTIFY_INTERVAL_MS = 30 * 60 * 1000;       // 30 minutes
+const RENOTIFY_INTERVAL_MS = 15 * 60 * 1000;       // 15 minutes
 const HIGH_PRIORITY_CYCLES  = 2;                     // mark high priority after 2 cycles
 const JOB_POLL_INTERVAL_MS  = 5 * 60 * 1000;        // check every 5 minutes
 
@@ -26,7 +26,7 @@ async function runRenotificationJob(): Promise<void> {
   try {
     const cutoff = new Date(Date.now() - RENOTIFY_INTERVAL_MS);
 
-    // Find all UNASSIGNED conversations not notified in the last 30 minutes
+    // Find all UNASSIGNED conversations not notified in the last 15 minutes
     const stale = await prisma.conversation.findMany({
       where: {
         status: 'UNASSIGNED',
