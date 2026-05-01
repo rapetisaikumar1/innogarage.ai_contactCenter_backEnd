@@ -19,6 +19,7 @@ export type MessageDeliveryStatus = 'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' 
 export interface MessageDTO {
   id: string;
   candidateId: string;
+  conversationId: string | null;
   direction: 'INBOUND' | 'OUTBOUND';
   channel: 'WHATSAPP';
   messageText: string;

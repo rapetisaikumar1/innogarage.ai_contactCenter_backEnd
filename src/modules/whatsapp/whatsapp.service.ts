@@ -117,11 +117,23 @@ export async function handleInboundMessage(params: {
     id: message.id,
     conversationId: conversation.id,
     candidateId: candidate.id,
+    direction: 'INBOUND',
+    channel: 'WHATSAPP',
+    messageText: params.body,
+    externalMessageId: params.messageSid,
+    sentByUserId: null,
+    deliveryStatus: null,
+    deliveryStatusUpdatedAt: null,
+    createdAt: message.createdAt,
+    candidate: {
+      id: candidate.id,
+      fullName: candidate.fullName,
+      phoneNumber: candidate.phoneNumber,
+      whatsappNumber: candidate.whatsappNumber,
+    },
+    sentBy: null,
     candidateName: candidate.fullName,
     whatsappPhone: phoneNumber,
-    messageText: params.body,
-    direction: 'INBOUND',
-    createdAt: message.createdAt,
   };
 
   if (conversation.status === 'UNASSIGNED') {
@@ -240,12 +252,16 @@ export async function sendMessage(
       id: message.id,
       conversationId: conversation.id,
       candidateId: input.candidateId,
-      messageText: input.message,
       direction: 'OUTBOUND',
-      sentBy: { id: sentByUserId },
+      channel: 'WHATSAPP',
+      messageText: input.message,
+      externalMessageId: message.externalMessageId,
+      sentByUserId: message.sentByUserId,
       deliveryStatus: message.deliveryStatus,
       deliveryStatusUpdatedAt: message.deliveryStatusUpdatedAt,
       createdAt: message.createdAt,
+      candidate: message.candidate,
+      sentBy: message.sentBy,
     });
 
     // Agent sent a reply → fully clear (clearedAt) notifications for this conversation
