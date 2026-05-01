@@ -8,7 +8,12 @@ export async function handleGetStats(req: Request, res: Response, next: NextFunc
     const { from, to } = req.query;
     const fromDate = from && typeof from === 'string' ? new Date(from) : undefined;
     const toDate   = to   && typeof to   === 'string' ? new Date(new Date(to).setHours(23, 59, 59, 999)) : undefined;
-    const stats = await getDashboardStats(fromDate, toDate);
+    const stats = await getDashboardStats({
+      userId: req.user!.userId,
+      userRole: req.user!.role,
+      from: fromDate,
+      to: toDate,
+    });
     sendSuccess(res, stats);
   } catch (err) {
     next(err);

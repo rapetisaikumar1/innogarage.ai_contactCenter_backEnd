@@ -1,13 +1,58 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { DashboardStats } from './dashboard.types';
 
-export async function getDashboardStats(from?: Date, to?: Date): Promise<DashboardStats> {
+interface GetDashboardStatsOptions {
+  userId: string;
+  userRole: string;
+  from?: Date;
+  to?: Date;
+}
+
+function buildMentorOwnedCandidateWhere(userId: string): Prisma.CandidateWhereInput {
+  return {
+    OR: [
+      { assignments: { some: { userId } } },
+      { conversation: { assignedAgentId: userId, status: 'ASSIGNED' } },
+    ],
+  };
+}
+
+function buildMentorScopedCallWhere(userId: string): Prisma.CallWhereInput {
+  return {
+    OR: [
+      { loggedById: userId },
+      { candidate: buildMentorOwnedCandidateWhere(userId) },
+    ],
+  };
+}
+
+function buildMentorScopedMessageWhere(userId: string): Prisma.MessageWhereInput {
+  return {
+    channel: 'WHATSAPP',
+    conversation: { assignedAgentId: userId, status: 'ASSIGNED' },
+  };
+}
+
+export async function getDashboardStats({ userId, userRole, from, to }: GetDashboardStatsOptions): Promise<DashboardStats> {
   const now = new Date();
   const rangeStart = from ?? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
   const rangeEnd   = to   ?? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-  // Keep todayStart/todayEnd for follow-up queries that are always today-relative
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
   const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  const isWorkspaceDashboard = userRole === 'ADMIN' || userRole === 'MANAGER';
+  const candidateWhere = isWorkspaceDashboard ? undefined : buildMentorOwnedCandidateWhere(userId);
+  const followUpScope = isWorkspaceDashboard ? {} : { userId };
+  const callsTodayWhere: Prisma.CallWhereInput = isWorkspaceDashboard
+    ? { createdAt: { gte: rangeStart, lte: rangeEnd } }
+    : { AND: [{ createdAt: { gte: rangeStart, lte: rangeEnd } }, buildMentorScopedCallWhere(userId)] };
+  const recentCallsWhere = isWorkspaceDashboard ? undefined : buildMentorScopedCallWhere(userId);
+  const messagesTodayWhere: Prisma.MessageWhereInput = isWorkspaceDashboard
+    ? { createdAt: { gte: rangeStart, lte: rangeEnd } }
+    : { AND: [{ createdAt: { gte: rangeStart, lte: rangeEnd } }, buildMentorScopedMessageWhere(userId)] };
+  const recentMessagesWhere: Prisma.MessageWhereInput = isWorkspaceDashboard
+    ? { channel: 'WHATSAPP' }
+    : buildMentorScopedMessageWhere(userId);
 
   const [
     totalCandidates,
@@ -20,50 +65,47 @@ export async function getDashboardStats(from?: Date, to?: Date): Promise<Dashboa
     recentCalls,
     recentMessagesRaw,
   ] = await Promise.all([
-    // Total candidates
-    prisma.candidate.count(),
+    prisma.candidate.count({ ...(candidateWhere ? { where: candidateWhere } : {}) }),
 
-    // Group by status
     prisma.candidate.groupBy({
+      ...(candidateWhere ? { where: candidateWhere } : {}),
       by: ['status'],
       _count: { id: true },
       orderBy: { _count: { id: 'desc' } },
     }),
 
-    // Follow-ups due today (PENDING or OVERDUE, dueAt within today)
     prisma.followUp.count({
       where: {
+        ...followUpScope,
         status: { in: ['PENDING', 'OVERDUE'] },
         dueAt: { gte: todayStart, lte: todayEnd },
       },
     }),
 
-    // All overdue follow-ups
     prisma.followUp.count({
       where: {
+        ...followUpScope,
         status: 'OVERDUE',
       },
     }),
 
-    // Calls logged in selected range
     prisma.call.count({
-      where: { createdAt: { gte: rangeStart, lte: rangeEnd } },
+      where: callsTodayWhere,
     }),
 
-    // WhatsApp messages in selected range
     prisma.message.count({
-      where: { createdAt: { gte: rangeStart, lte: rangeEnd } },
+      where: messagesTodayWhere,
     }),
 
-    // 5 most recently added candidates
     prisma.candidate.findMany({
+      ...(candidateWhere ? { where: candidateWhere } : {}),
       orderBy: { createdAt: 'desc' },
       take: 5,
       select: { id: true, fullName: true, status: true, phoneNumber: true, createdAt: true },
     }),
 
-    // 5 most recent call logs
     prisma.call.findMany({
+      ...(recentCallsWhere ? { where: recentCallsWhere } : {}),
       orderBy: { createdAt: 'desc' },
       take: 5,
       include: {
@@ -72,14 +114,17 @@ export async function getDashboardStats(from?: Date, to?: Date): Promise<Dashboa
       },
     }),
 
-    // Latest message per candidate (inbox snapshot)
     prisma.message.findMany({
-      where: { channel: 'WHATSAPP' },
+      where: recentMessagesWhere,
       orderBy: { createdAt: 'desc' },
       distinct: ['candidateId'],
       take: 5,
-      include: {
-        candidate: { select: { id: true, fullName: true } },
+      select: {
+        candidateId: true,
+        messageText: true,
+        createdAt: true,
+        direction: true,
+        candidate: { select: { fullName: true } },
       },
     }),
   ]);
