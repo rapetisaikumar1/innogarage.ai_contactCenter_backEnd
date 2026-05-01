@@ -3,6 +3,7 @@ import { authenticate } from '../../middleware/authenticate';
 import { authorize } from '../../middleware/authorize';
 import {
   handleWebhook,
+  handleStatusWebhook,
   handleSend,
   handleInbox,
   handleListMessages,
@@ -23,6 +24,7 @@ const router = Router();
 
 // ── Public: Twilio webhook ────────────────────────────────────────────────────
 router.post('/webhook', handleWebhook);
+router.post('/status', handleStatusWebhook);
 
 // ── All routes below require auth ─────────────────────────────────────────────
 router.use(authenticate);

@@ -3,7 +3,39 @@ import { sendWhatsAppMessage } from '../../lib/twilio';
 import { logger } from '../../lib/logger';
 import { emitToAll, emitToUser, emitToUsers } from '../../lib/socket';
 import { notifyUsers } from '../../lib/notifications';
-import { SendMessageInput, ConversationSummary, MessageDTO } from './whatsapp.types';
+import { SendMessageInput, ConversationSummary, MessageDTO, MessageDeliveryStatus } from './whatsapp.types';
+
+const DELIVERY_STATUS_RANK: Record<MessageDeliveryStatus, number> = {
+  QUEUED: 0,
+  SENDING: 0,
+  SENT: 1,
+  DELIVERED: 2,
+  READ: 3,
+  FAILED: 4,
+  UNDELIVERED: 4,
+};
+
+function normalizeTwilioDeliveryStatus(status: string): MessageDeliveryStatus | null {
+  const normalized = status.trim().toUpperCase().replace(/-/g, '_');
+  if (normalized === 'ACCEPTED' || normalized === 'QUEUED' || normalized === 'SCHEDULED') return 'QUEUED';
+  if (normalized === 'SENDING') return 'SENDING';
+  if (normalized === 'SENT') return 'SENT';
+  if (normalized === 'DELIVERED') return 'DELIVERED';
+  if (normalized === 'READ') return 'READ';
+  if (normalized === 'FAILED') return 'FAILED';
+  if (normalized === 'UNDELIVERED') return 'UNDELIVERED';
+  return null;
+}
+
+function shouldUpdateDeliveryStatus(current: string | null, next: MessageDeliveryStatus): boolean {
+  if (!current) return true;
+  const currentStatus = normalizeTwilioDeliveryStatus(current);
+  if (!currentStatus) return true;
+  if (currentStatus === 'READ') return false;
+  if (next === 'FAILED' || next === 'UNDELIVERED') return true;
+  if (currentStatus === 'FAILED' || currentStatus === 'UNDELIVERED') return false;
+  return DELIVERY_STATUS_RANK[next] >= DELIVERY_STATUS_RANK[currentStatus];
+}
 
 // ─── Helper: get all active user IDs ─────────────────────────────────────────
 async function getAllActiveUserIds(): Promise<string[]> {
@@ -141,7 +173,8 @@ export async function handleInboundMessage(params: {
 export async function sendMessage(
   input: SendMessageInput,
   sentByUserId: string,
-  senderRole: string
+  senderRole: string,
+  statusCallbackUrl?: string
 ): Promise<MessageDTO> {
   const candidate = await prisma.candidate.findUnique({ where: { id: input.candidateId } });
   if (!candidate) throw new Error('Candidate not found');
@@ -160,7 +193,7 @@ export async function sendMessage(
   const toNumber = candidate.whatsappNumber ?? candidate.phoneNumber;
   if (!toNumber) throw new Error('Candidate has no phone/WhatsApp number');
 
-  const messageSid = await sendWhatsAppMessage(toNumber, input.message);
+  const messageSid = await sendWhatsAppMessage(toNumber, input.message, statusCallbackUrl);
 
   const conversation = await prisma.conversation.findUnique({
     where: { candidateId: input.candidateId },
@@ -175,6 +208,8 @@ export async function sendMessage(
       messageText: input.message,
       externalMessageId: messageSid,
       sentByUserId,
+      deliveryStatus: 'SENT',
+      deliveryStatusUpdatedAt: new Date(),
     },
     include: {
       candidate: { select: { id: true, fullName: true, phoneNumber: true, whatsappNumber: true } },
@@ -208,6 +243,8 @@ export async function sendMessage(
       messageText: input.message,
       direction: 'OUTBOUND',
       sentBy: { id: sentByUserId },
+      deliveryStatus: message.deliveryStatus,
+      deliveryStatusUpdatedAt: message.deliveryStatusUpdatedAt,
       createdAt: message.createdAt,
     });
 
@@ -239,6 +276,56 @@ export async function sendMessage(
 
   logger.info({ messageId: message.id, candidateId: input.candidateId }, 'WhatsApp sent');
   return message as unknown as MessageDTO;
+}
+
+// ─── Outbound status webhook handler ─────────────────────────────────────────
+export async function handleOutboundStatusUpdate(params: {
+  messageSid: string;
+  status: string;
+}): Promise<void> {
+  const deliveryStatus = normalizeTwilioDeliveryStatus(params.status);
+  if (!deliveryStatus) {
+    logger.info({ messageSid: params.messageSid, status: params.status }, 'Ignored unknown WhatsApp delivery status');
+    return;
+  }
+
+  const existing = await prisma.message.findUnique({
+    where: { externalMessageId: params.messageSid },
+    select: {
+      id: true,
+      candidateId: true,
+      conversationId: true,
+      direction: true,
+      deliveryStatus: true,
+    },
+  });
+
+  if (!existing || existing.direction !== 'OUTBOUND') {
+    logger.info({ messageSid: params.messageSid, status: params.status }, 'WhatsApp delivery status for unknown outbound message ignored');
+    return;
+  }
+
+  if (!shouldUpdateDeliveryStatus(existing.deliveryStatus, deliveryStatus)) {
+    return;
+  }
+
+  const updated = await prisma.message.update({
+    where: { id: existing.id },
+    data: {
+      deliveryStatus,
+      deliveryStatusUpdatedAt: new Date(),
+    },
+    select: {
+      id: true,
+      candidateId: true,
+      conversationId: true,
+      deliveryStatus: true,
+      deliveryStatusUpdatedAt: true,
+    },
+  });
+
+  emitToAll('conversation:message_status_updated', updated);
+  logger.info({ messageId: updated.id, deliveryStatus }, 'WhatsApp delivery status updated');
 }
 
 // ─── List messages for a candidate thread ────────────────────────────────────

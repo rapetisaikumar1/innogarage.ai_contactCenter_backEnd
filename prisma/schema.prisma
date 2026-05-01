@@ -238,15 +238,17 @@ model CandidateAssignment {
 }
 
 model Message {
-  id                String           @id @default(cuid())
-  candidateId       String
-  conversationId    String?
-  direction         MessageDirection
-  channel           MessageChannel   @default(WHATSAPP)
-  messageText       String
-  externalMessageId String?          @unique
-  sentByUserId      String?
-  createdAt         DateTime         @default(now())
+  id                      String           @id @default(cuid())
+  candidateId             String
+  conversationId          String?
+  direction               MessageDirection
+  channel                 MessageChannel   @default(WHATSAPP)
+  messageText             String
+  externalMessageId       String?          @unique
+  sentByUserId            String?
+  deliveryStatus          String?
+  deliveryStatusUpdatedAt DateTime?
+  createdAt               DateTime         @default(now())
 
   candidate    Candidate     @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   conversation Conversation? @relation(fields: [conversationId], references: [id])

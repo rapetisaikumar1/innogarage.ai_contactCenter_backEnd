@@ -14,6 +14,8 @@ export const listMessagesSchema = z.object({
 
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 
+export type MessageDeliveryStatus = 'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'UNDELIVERED';
+
 export interface MessageDTO {
   id: string;
   candidateId: string;
@@ -22,6 +24,8 @@ export interface MessageDTO {
   messageText: string;
   externalMessageId: string | null;
   sentByUserId: string | null;
+  deliveryStatus: MessageDeliveryStatus | null;
+  deliveryStatusUpdatedAt: Date | null;
   createdAt: Date;
   candidate: { id: string; fullName: string; phoneNumber: string; whatsappNumber: string | null };
   sentBy: { id: string; name: string } | null;

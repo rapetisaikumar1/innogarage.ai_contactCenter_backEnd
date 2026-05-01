@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { sendSuccess, sendError } from '../../utils/response';
 import {
   handleInboundMessage,
+  handleOutboundStatusUpdate,
   sendMessage,
   listCandidateMessages,
   listInbox,
@@ -10,21 +11,29 @@ import { sendMessageSchema, listMessagesSchema } from './whatsapp.types';
 import { validateTwilioSignature } from '../../lib/twilio';
 import { env } from '../../config/env';
 
+function getPublicRequestUrl(req: Request): string {
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  return `${proto}://${req.get('host')}${req.originalUrl}`;
+}
+
+function getWhatsAppStatusCallbackUrl(req: Request): string {
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  return `${proto}://${req.get('host')}/api/whatsapp/status`;
+}
+
+function isValidTwilioWebhook(req: Request): boolean {
+  if (env.SKIP_WEBHOOK_VALIDATION) return true;
+  const signature = req.headers['x-twilio-signature'] as string | undefined;
+  if (!signature) return false;
+  return validateTwilioSignature(signature, getPublicRequestUrl(req), req.body);
+}
+
 // POST /api/whatsapp/webhook  — public, called by Twilio
 export async function handleWebhook(req: Request, res: Response, next: NextFunction) {
   try {
     // SECURITY: validate Twilio signature on every webhook call. Only skip when an
     // operator explicitly opts out via SKIP_WEBHOOK_VALIDATION=true (local dev only).
-    if (!env.SKIP_WEBHOOK_VALIDATION) {
-      const signature = req.headers['x-twilio-signature'] as string | undefined;
-      if (!signature) return sendError(res, 403, 'Missing Twilio signature');
-
-      // Use x-forwarded-proto so we get https behind Railway's proxy
-      const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
-      const url = `${proto}://${req.get('host')}${req.originalUrl}`;
-      const valid = validateTwilioSignature(signature, url, req.body);
-      if (!valid) return sendError(res, 403, 'Invalid Twilio signature');
-    }
+    if (!isValidTwilioWebhook(req)) return sendError(res, 403, 'Invalid Twilio signature');
 
     const { From, Body, MessageSid } = req.body as Record<string, string>;
     if (!From || !Body || !MessageSid) {
@@ -41,6 +50,24 @@ export async function handleWebhook(req: Request, res: Response, next: NextFunct
   }
 }
 
+// POST /api/whatsapp/status — public, called by Twilio for outbound statuses
+export async function handleStatusWebhook(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (!isValidTwilioWebhook(req)) return sendError(res, 403, 'Invalid Twilio signature');
+
+    const { MessageSid, MessageStatus, SmsStatus } = req.body as Record<string, string | undefined>;
+    const status = MessageStatus ?? SmsStatus;
+    if (!MessageSid || !status) {
+      return sendError(res, 400, 'Missing required Twilio status webhook fields');
+    }
+
+    await handleOutboundStatusUpdate({ messageSid: MessageSid, status });
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+}
+
 // POST /api/whatsapp/send  — authenticated agents
 export async function handleSend(req: Request, res: Response, next: NextFunction) {
   try {
@@ -48,7 +75,7 @@ export async function handleSend(req: Request, res: Response, next: NextFunction
     if (!parsed.success) {
       return sendError(res, 422, 'Validation failed', parsed.error.flatten().fieldErrors);
     }
-    const message = await sendMessage(parsed.data, req.user!.userId, req.user!.role);
+    const message = await sendMessage(parsed.data, req.user!.userId, req.user!.role, getWhatsAppStatusCallbackUrl(req));
     sendSuccess(res, message, 201);
   } catch (err: unknown) {
     if (err instanceof Error && err.message.startsWith('Access denied')) {
